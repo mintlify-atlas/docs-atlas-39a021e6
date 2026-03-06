@@ -1,0 +1,131 @@
+---
+title: "TelemetryDTO"
+description: "Real-time telemetry data model for surgical instrument tracking"
+---
+
+## Overview
+
+`TelemetryDTO` is the primary data transfer object for transmitting real-time surgical instrument position and event data via WebSocket connections. It captures spatial coordinates, surgical events, and timing information during active surgery sessions.
+
+## Model Structure
+
+<ResponseField name="coordinates" type="double[]" required>
+  Array of coordinate values representing the instrument position in 2D or 3D space.
+  
+  **Validation Rules:**
+  - `@NotNull`: Coordinates are mandatory
+  - `@NotEmpty`: Must contain at least one coordinate value
+  - `@Size(min = 2, max = 3)`: Array must contain exactly 2 or 3 values
+  
+  **Format:**
+  - 2D: `[x, y]`
+  - 3D: `[x, y, z]`
+</ResponseField>
+
+<ResponseField name="event" type="SurgeryEvent" required>
+  The surgical event associated with this telemetry point.
+  
+  **Validation Rules:**
+  - `@NotNull`: Event type is mandatory
+  
+  **Possible Values:**
+  - `NONE` - No specific event
+  - `START` - Surgery session started
+  - `FINISH` - Surgery session completed
+  - `TUMOR_TOUCH` - Instrument contacted tumor tissue
+  - `TUMOR_REMOVAL` - Tumor successfully removed
+  - `HEMORRHAGE` - Bleeding event detected
+  - `KIDNEY_TOUCH` - Instrument contacted kidney tissue
+  
+  See [SurgeryEvent](/api/models/surgery-events) for detailed documentation.
+</ResponseField>
+
+<ResponseField name="timestamp" type="long" required>
+  Unix timestamp (milliseconds) when the telemetry data was captured.
+  
+  **Validation Rules:**
+  - `@Positive`: Must be a positive number
+</ResponseField>
+
+## JSON Examples
+
+### 2D Telemetry Point
+
+```json
+{
+  "coordinates": [125.5, 340.2],
+  "event": "NONE",
+  "timestamp": 1709740800000
+}
+```
+
+### 3D Telemetry Point with Event
+
+```json
+{
+  "coordinates": [125.5, 340.2, 15.8],
+  "event": "TUMOR_TOUCH",
+  "timestamp": 1709740805000
+}
+```
+
+### Surgery Start Event
+
+```json
+{
+  "coordinates": [0.0, 0.0],
+  "event": "START",
+  "timestamp": 1709740800000
+}
+```
+
+### Critical Event Example
+
+```json
+{
+  "coordinates": [145.3, 298.7, 22.1],
+  "event": "HEMORRHAGE",
+  "timestamp": 1709740850000
+}
+```
+
+## Validation Error Messages
+
+The DTO includes Spanish-language validation messages:
+
+| Validation Rule | Error Message |
+|----------------|---------------|
+| Null coordinates | "Las coordenadas son obligatorias" |
+| Empty coordinates | "Debe haber al menos una coordenada" |
+| Invalid array size | "Coordinates debe tener 2 o 3 valores" |
+| Null event | "El evento es obligatorio" |
+| Non-positive timestamp | "El timestamp debe ser positivo" |
+
+## Usage Context
+
+### WebSocket Communication
+
+Telemetry data is transmitted in real-time during active surgery sessions:
+
+- **Send Endpoint**: `/app/telemetry/{surgeryId}`
+- **Subscribe Topic**: `/topic/analysis/{surgeryId}`
+- **Frequency**: Typically sent multiple times per second during instrument movement
+
+### Processing Flow
+
+1. Client sends TelemetryDTO via WebSocket
+2. Server validates the DTO using Jakarta Validation
+3. Valid telemetry is converted to a `Movement` object
+4. Movement is added to the active `SurgerySession` trajectory
+5. Telemetry is processed for real-time analysis and feedback
+
+## Related Models
+
+- [Movement](/api/models/trajectory#movement-structure) - Internal representation of telemetry data
+- [TrajectoryDTO](/api/models/trajectory) - Complete trajectory containing multiple movements
+- [SurgeryEvent](/api/models/surgery-events) - Enumeration of all surgical events
+- [AnalysisDTO](/api/models/analysis) - AI-generated analysis results
+
+## Source Location
+
+`backend/src/main/java/project/Justina/domain/dto/TelemetryDTO.java`

@@ -1,0 +1,326 @@
+---
+title: 'Simulation WebSocket'
+description: 'Real-time telemetry streaming for surgical simulations'
+---
+
+## Overview
+
+The Simulation WebSocket endpoint receives real-time telemetry data from surgical simulation clients. It tracks surgeon movements, surgical events, and automatically persists completed surgery sessions.
+
+**Handler**: `SimulationWebSocketHandler` (backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:25)
+
+## Endpoint
+
+```
+ws://your-domain/ws/simulation?token={JWT_TOKEN}
+```
+
+### Authentication
+
+JWT authentication is required via query parameter. The token is validated during the WebSocket handshake by `HandshakeInterceptorImpl`.
+
+**Query Parameters:**
+- `token` (required): Valid JWT token containing surgeon credentials
+
+**Token Claims Extracted:**
+- `username`: Surgeon username
+- `userId`: Surgeon UUID (stored as `SURGEON_ID` in session attributes)
+- `role`: User role
+
+### Connection Handshake
+
+**Success (HTTP 101 Switching Protocols)**
+```
+Connection: Upgrade
+Upgrade: websocket
+```
+
+**Failure Scenarios:**
+- Missing token → HTTP 401 (handshake rejected)
+- Invalid token → HTTP 401 (handshake rejected)
+- Token parsing error → HTTP 401 (handshake rejected)
+
+## Message Format
+
+### Client → Server: Telemetry Data
+
+Clients send JSON messages conforming to `TelemetryDTO`:
+
+<ParamField body="coordinates" type="number[]" required>
+  Array of 2 or 3 coordinates representing tool position in 3D space.
+  
+  **Validation:**
+  - Must not be null or empty
+  - Length: 2-3 values
+  - Example: `[1.5, 2.3, 4.7]`
+</ParamField>
+
+<ParamField body="event" type="SurgeryEvent" required>
+  Type of surgical event occurring.
+  
+  **Allowed values:**
+  - `NONE`: No specific event
+  - `START`: Surgery session start
+  - `TUMOR_TOUCH`: Surgeon touched tumor
+  - `TUMOR_REMOVAL`: Tumor removed successfully
+  - `HEMORRHAGE`: Bleeding event
+  - `KIDNEY_TOUCH`: Surgeon touched kidney (error)
+  - `FINISH`: Surgery session complete
+</ParamField>
+
+<ParamField body="timestamp" type="long" required>
+  Unix timestamp in milliseconds when the event occurred.
+  
+  **Validation:**
+  - Must be positive
+  - Example: `1678901234567`
+</ParamField>
+
+#### Example Message
+
+```json
+{
+  "coordinates": [1.0, 2.0, 3.0],
+  "event": "START",
+  "timestamp": 1678901234567
+}
+```
+
+### Server → Client: Completion Response
+
+When a `FINISH` event is received, the server saves the surgery session and responds:
+
+```json
+{
+  "status": "SAVED",
+  "surgeryId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+<ParamField body="status" type="string">
+  Always `"SAVED"` on successful persistence
+</ParamField>
+
+<ParamField body="surgeryId" type="string">
+  UUID of the saved surgery session
+</ParamField>
+
+## Session Lifecycle
+
+1. **Connection**: Client connects with valid JWT token
+2. **Session Creation**: `SurgerySession` is created in memory with surgeon ID from token
+3. **Movement Tracking**: Each telemetry message adds a `Movement` to the session
+4. **Completion**: When `FINISH` event is received:
+   - Session is persisted to database via `SurgeryRepository`
+   - Response with `surgeryId` is sent to client
+   - AI service is notified via `AIWebSocketHandler.notificarNuevaCirugia()`
+   - Session is removed from active sessions map
+
+## Close Status Codes
+
+The server may close the connection with these status codes:
+
+| Code | Constant | Reason |
+|------|----------|--------|
+| 1003 | `BAD_DATA` | Invalid telemetry data (validation failure) |
+| 1008 | `POLICY_VIOLATION` | Missing `SURGEON_ID` in session attributes |
+
+**Validation Failures** (trigger `BAD_DATA` close):
+- Empty coordinates array
+- Coordinates array length not 2-3
+- Null event
+- Negative or zero timestamp
+
+## Security
+
+**Authentication:** JWT token required in query parameter (backend/src/main/java/project/Justina/infrastructure/websocket/HandshakeInterceptorImpl.java:23)
+
+**Authorization:** The `SURGEON_ID` extracted from JWT is verified on every message (backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:59)
+
+**CORS:** Allowed origins: `*` (configured in `WebSocketConfig`)
+
+## Client Examples
+
+### JavaScript (Browser)
+
+```javascript
+const token = 'your.jwt.token';
+const ws = new WebSocket(`ws://localhost:8080/ws/simulation?token=${token}`);
+
+ws.onopen = () => {
+  console.log('Connected to simulation WebSocket');
+  
+  // Send start event
+  ws.send(JSON.stringify({
+    coordinates: [0.0, 0.0, 0.0],
+    event: 'START',
+    timestamp: Date.now()
+  }));
+};
+
+ws.onmessage = (event) => {
+  const response = JSON.parse(event.data);
+  console.log('Surgery saved:', response.surgeryId);
+};
+
+ws.onclose = (event) => {
+  console.log(`Connection closed: ${event.code} - ${event.reason}`);
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+// Send telemetry during simulation
+function sendTelemetry(x, y, z, event) {
+  ws.send(JSON.stringify({
+    coordinates: [x, y, z],
+    event: event,
+    timestamp: Date.now()
+  }));
+}
+
+// Finish surgery
+function finishSurgery() {
+  ws.send(JSON.stringify({
+    coordinates: [0.0, 0.0, 0.0],
+    event: 'FINISH',
+    timestamp: Date.now()
+  }));
+}
+```
+
+### Python (websocket-client)
+
+```python
+import websocket
+import json
+import time
+
+token = "your.jwt.token"
+url = f"ws://localhost:8080/ws/simulation?token={token}"
+
+def on_message(ws, message):
+    data = json.loads(message)
+    print(f"Surgery saved: {data['surgeryId']}")
+
+def on_error(ws, error):
+    print(f"Error: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    print(f"Connection closed: {close_status_code} - {close_msg}")
+
+def on_open(ws):
+    print("Connected to simulation WebSocket")
+    
+    # Send start event
+    ws.send(json.dumps({
+        "coordinates": [0.0, 0.0, 0.0],
+        "event": "START",
+        "timestamp": int(time.time() * 1000)
+    }))
+    
+    # Simulate telemetry
+    for i in range(10):
+        ws.send(json.dumps({
+            "coordinates": [i * 0.1, i * 0.2, i * 0.3],
+            "event": "NONE",
+            "timestamp": int(time.time() * 1000)
+        }))
+        time.sleep(0.1)
+    
+    # Finish surgery
+    ws.send(json.dumps({
+        "coordinates": [0.0, 0.0, 0.0],
+        "event": "FINISH",
+        "timestamp": int(time.time() * 1000)
+    }))
+
+ws = websocket.WebSocketApp(url,
+                            on_open=on_open,
+                            on_message=on_message,
+                            on_error=on_error,
+                            on_close=on_close)
+
+ws.run_forever()
+```
+
+### Java (Spring WebSocket Client)
+
+```java
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.client.WebSocketClient;
+import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class SimulationClient extends TextWebSocketHandler {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    
+    public void connect(String token) throws Exception {
+        WebSocketClient client = new StandardWebSocketClient();
+        String uri = "ws://localhost:8080/ws/simulation?token=" + token;
+        
+        WebSocketSession session = client.execute(this, uri).get();
+        
+        // Send start event
+        TelemetryDTO start = new TelemetryDTO(
+            new double[]{0.0, 0.0, 0.0},
+            SurgeryEvent.START,
+            System.currentTimeMillis()
+        );
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(start)));
+    }
+    
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        System.out.println("Response: " + message.getPayload());
+    }
+}
+```
+
+## Error Handling
+
+### Client-Side Validation
+
+Before sending messages, validate:
+- Coordinates array has 2-3 elements
+- Event is a valid `SurgeryEvent` enum value
+- Timestamp is positive
+
+### Connection Errors
+
+```javascript
+ws.onerror = (error) => {
+  console.error('Connection failed:', error);
+  // Retry logic
+  setTimeout(() => connectWebSocket(), 5000);
+};
+```
+
+### Unexpected Closures
+
+```javascript
+ws.onclose = (event) => {
+  if (event.code === 1003) {
+    console.error('Invalid data sent');
+  } else if (event.code === 1008) {
+    console.error('Authentication failed');
+  } else {
+    console.log('Normal closure');
+  }
+};
+```
+
+## Performance Considerations
+
+- **Concurrent Sessions**: The handler uses `ConcurrentHashMap` for thread-safe session management
+- **Message Rate**: No rate limiting implemented; client should throttle appropriately
+- **Session Cleanup**: Sessions are automatically removed on `FINISH` event or connection close
+- **Memory**: Active sessions are stored in-memory; ensure proper session lifecycle management
+
+## Related Endpoints
+
+- [AI WebSocket](/api/websocket/ai) - Receives notifications when surgeries are completed
+- [Authentication](/api/auth/login) - Obtain JWT token for WebSocket connection

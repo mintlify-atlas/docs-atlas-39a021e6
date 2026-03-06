@@ -1,0 +1,509 @@
+---
+title: 'Environment Variables'
+description: 'Complete reference for all Justina Core Backend environment variables'
+icon: 'gear'
+---
+
+## Overview
+
+Justina Core Backend is configured entirely through environment variables, following the [12-Factor App](https://12factor.net/) methodology. This allows for flexible deployment across different environments without code changes.
+
+## Required Variables
+
+These variables **must** be set for the application to function:
+
+### JWT Configuration
+
+<ParamField path="JWT_SECRET_KEY" type="string" required>
+  Secret key used for signing and verifying JWT tokens.
+
+  **Requirements:**
+  - Minimum 256 bits (32 characters)
+  - Use cryptographically secure random generation
+  - Must be kept secret and never committed to version control
+
+  **Example:**
+  ```bash
+  JWT_SECRET_KEY="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+  ```
+
+  **Generate secure key:**
+  ```bash
+  # Using openssl
+  openssl rand -base64 32
+
+  # Using Python
+  python -c "import secrets; print(secrets.token_urlsafe(32))"
+  ```
+</ParamField>
+
+### Database Configuration
+
+<ParamField path="SPRING_DATASOURCE_URL" type="string" required>
+  JDBC connection URL for the database.
+
+  **Development (H2):**
+  ```bash
+  SPRING_DATASOURCE_URL="jdbc:h2:mem:justina"
+  ```
+
+  **Production (PostgreSQL):**
+  ```bash
+  SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/justina"
+  ```
+
+  **Docker Compose:**
+  ```bash
+  SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/justina"
+  ```
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_USERNAME" type="string" required>
+  Database username for authentication.
+
+  **H2 default:**
+  ```bash
+  SPRING_DATASOURCE_USERNAME="sa"
+  ```
+
+  **PostgreSQL:**
+  ```bash
+  SPRING_DATASOURCE_USERNAME="postgres"
+  ```
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_PASSWORD" type="string" required>
+  Database password for authentication.
+
+  **H2 default:**
+  ```bash
+  SPRING_DATASOURCE_PASSWORD=""
+  ```
+
+  **PostgreSQL:**
+  ```bash
+  SPRING_DATASOURCE_PASSWORD="your-secure-password"
+  ```
+
+  <Warning>
+    Never use default passwords in production!
+  </Warning>
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_DRIVER_CLASS_NAME" type="string" required>
+  JDBC driver class name for database connection.
+
+  **H2:**
+  ```bash
+  SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.h2.Driver"
+  ```
+
+  **PostgreSQL:**
+  ```bash
+  SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.postgresql.Driver"
+  ```
+</ParamField>
+
+### JPA/Hibernate Configuration
+
+<ParamField path="SPRING_JPA_HIBERNATE_DDL_AUTO" type="string" required>
+  Hibernate DDL auto-generation strategy.
+
+  **Options:**
+  - `create-drop`: Drop and recreate schema on startup/shutdown (development only)
+  - `create`: Create schema on startup, don't drop on shutdown
+  - `update`: Update existing schema (production)
+  - `validate`: Validate schema, make no changes (strict production)
+  - `none`: Disable automatic DDL
+
+  **Development:**
+  ```bash
+  SPRING_JPA_HIBERNATE_DDL_AUTO="create-drop"
+  ```
+
+  **Production:**
+  ```bash
+  SPRING_JPA_HIBERNATE_DDL_AUTO="update"
+  ```
+
+  <Warning>
+    Never use `create-drop` in production! You will lose all data.
+  </Warning>
+</ParamField>
+
+<ParamField path="SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT" type="string" required>
+  Hibernate SQL dialect for database-specific optimizations.
+
+  **H2:**
+  ```bash
+  SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.H2Dialect"
+  ```
+
+  **PostgreSQL:**
+  ```bash
+  SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.PostgreSQLDialect"
+  ```
+</ParamField>
+
+## Optional Variables
+
+### Server Configuration
+
+<ParamField path="PORT" type="integer" default="8080">
+  HTTP server port.
+
+  ```bash
+  PORT=8080
+  ```
+</ParamField>
+
+<ParamField path="SPRING_JPA_SHOW_SQL" type="boolean" default="false">
+  Enable SQL query logging to console.
+
+  **Development:**
+  ```bash
+  SPRING_JPA_SHOW_SQL="true"
+  ```
+
+  **Production:**
+  ```bash
+  SPRING_JPA_SHOW_SQL="false"
+  ```
+
+  <Warning>
+    Disable in production to avoid performance overhead and sensitive data exposure.
+  </Warning>
+</ParamField>
+
+## Environment-Specific Configurations
+
+### Development Environment
+
+Complete `.env` file for local development:
+
+```bash
+# Server
+PORT=8080
+
+# Security
+JWT_SECRET_KEY="dev-secret-key-replace-in-production"
+
+# Database (H2 In-Memory)
+SPRING_DATASOURCE_URL="jdbc:h2:mem:justina"
+SPRING_DATASOURCE_USERNAME="sa"
+SPRING_DATASOURCE_PASSWORD=""
+SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.h2.Driver"
+
+# JPA/Hibernate
+SPRING_JPA_HIBERNATE_DDL_AUTO="create-drop"
+SPRING_JPA_SHOW_SQL="true"
+SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.H2Dialect"
+```
+
+### Production Environment (PostgreSQL)
+
+Complete `.env` file for production:
+
+```bash
+# Server
+PORT=8080
+
+# Security
+JWT_SECRET_KEY="CHANGE-THIS-TO-A-SECURE-RANDOM-STRING-MIN-256-BITS"
+
+# Database (PostgreSQL)
+SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/justina"
+SPRING_DATASOURCE_USERNAME="justina_user"
+SPRING_DATASOURCE_PASSWORD="CHANGE-THIS-SECURE-PASSWORD"
+SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.postgresql.Driver"
+
+# JPA/Hibernate
+SPRING_JPA_HIBERNATE_DDL_AUTO="update"
+SPRING_JPA_SHOW_SQL="false"
+SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.PostgreSQLDialect"
+```
+
+### Docker Compose Environment
+
+Complete `.env` file for Docker Compose deployment:
+
+```bash
+# Server
+PORT=8080
+
+# Security
+JWT_SECRET_KEY="CHANGE-THIS-TO-A-SECURE-RANDOM-STRING-MIN-256-BITS"
+
+# Database (PostgreSQL via Docker Compose service name)
+SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/justina"
+SPRING_DATASOURCE_USERNAME="postgres"
+SPRING_DATASOURCE_PASSWORD="CHANGE-THIS-SECURE-PASSWORD"
+SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.postgresql.Driver"
+
+# PostgreSQL Container
+POSTGRES_DB="justina"
+POSTGRES_USER="postgres"
+POSTGRES_PASSWORD="CHANGE-THIS-SECURE-PASSWORD"
+
+# JPA/Hibernate
+SPRING_JPA_HIBERNATE_DDL_AUTO="update"
+SPRING_JPA_SHOW_SQL="false"
+SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.PostgreSQLDialect"
+```
+
+## Setting Environment Variables
+
+### Local Development
+
+<CodeGroup>
+
+```bash .env File
+# Create .env file
+cat > .env << 'EOF'
+PORT=8080
+JWT_SECRET_KEY="your-secret-key"
+SPRING_DATASOURCE_URL="jdbc:h2:mem:justina"
+# ... other variables
+EOF
+
+# Load variables (bash)
+export $(cat .env | xargs)
+
+# Run application
+./mvnw spring-boot:run
+```
+
+```bash Direct Export
+# Export variables directly
+export PORT=8080
+export JWT_SECRET_KEY="your-secret-key"
+export SPRING_DATASOURCE_URL="jdbc:h2:mem:justina"
+# ... other variables
+
+# Run application
+./mvnw spring-boot:run
+```
+
+```bash Inline
+# Set variables inline
+PORT=8080 \
+JWT_SECRET_KEY="your-secret-key" \
+SPRING_DATASOURCE_URL="jdbc:h2:mem:justina" \
+java -jar target/Justina-0.0.1-SNAPSHOT.jar
+```
+
+</CodeGroup>
+
+### Docker
+
+<CodeGroup>
+
+```bash Docker Run
+docker run -p 8080:8080 \
+  -e PORT=8080 \
+  -e JWT_SECRET_KEY="your-secret-key" \
+  -e SPRING_DATASOURCE_URL="jdbc:postgresql://host:5432/justina" \
+  -e SPRING_DATASOURCE_USERNAME="postgres" \
+  -e SPRING_DATASOURCE_PASSWORD="password" \
+  -e SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.postgresql.Driver" \
+  -e SPRING_JPA_HIBERNATE_DDL_AUTO="update" \
+  -e SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.PostgreSQLDialect" \
+  justina-backend:latest
+```
+
+```bash Env File
+# Use --env-file flag
+docker run -p 8080:8080 \
+  --env-file .env \
+  justina-backend:latest
+```
+
+</CodeGroup>
+
+### Docker Compose
+
+```yaml
+services:
+  justina-backend:
+    # ...
+    environment:
+      - PORT=${PORT}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
+      # ... other variables
+    # OR use env_file
+    env_file:
+      - .env
+```
+
+### Kubernetes
+
+<CodeGroup>
+
+```yaml ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: justina-config
+data:
+  PORT: "8080"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-service:5432/justina"
+  SPRING_DATASOURCE_USERNAME: "postgres"
+  SPRING_DATASOURCE_DRIVER_CLASS_NAME: "org.postgresql.Driver"
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+  SPRING_JPA_SHOW_SQL: "false"
+  SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: "org.hibernate.dialect.PostgreSQLDialect"
+```
+
+```yaml Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: justina-secrets
+type: Opaque
+stringData:
+  JWT_SECRET_KEY: "your-secret-key-here"
+  SPRING_DATASOURCE_PASSWORD: "your-db-password-here"
+```
+
+```yaml Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: justina-backend
+spec:
+  template:
+    spec:
+      containers:
+      - name: justina-backend
+        image: justina-backend:latest
+        envFrom:
+        - configMapRef:
+            name: justina-config
+        - secretRef:
+            name: justina-secrets
+```
+
+</CodeGroup>
+
+## Validation
+
+### Verify Configuration
+
+Check that all required variables are set:
+
+```bash
+#!/bin/bash
+
+required_vars=(
+  "JWT_SECRET_KEY"
+  "SPRING_DATASOURCE_URL"
+  "SPRING_DATASOURCE_USERNAME"
+  "SPRING_DATASOURCE_PASSWORD"
+  "SPRING_DATASOURCE_DRIVER_CLASS_NAME"
+  "SPRING_JPA_HIBERNATE_DDL_AUTO"
+  "SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT"
+)
+
+for var in "${required_vars[@]}"; do
+  if [ -z "${!var}" ]; then
+    echo "ERROR: $var is not set"
+    exit 1
+  fi
+done
+
+echo "All required environment variables are set"
+```
+
+### Application Startup Logs
+
+On successful startup, you should see:
+
+```log
+2024-01-15 10:30:00.123  INFO 1 --- [main] project.Justina.JustinaApplication       : Starting JustinaApplication
+2024-01-15 10:30:01.456  INFO 1 --- [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8080 (http)
+2024-01-15 10:30:02.789  INFO 1 --- [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2024-01-15 10:30:03.012  INFO 1 --- [main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2024-01-15 10:30:04.345  INFO 1 --- [main] project.Justina.JustinaApplication       : Started JustinaApplication in 4.567 seconds
+```
+
+## Security Best Practices
+
+<Warning>
+  **Never commit sensitive environment variables to version control!**
+</Warning>
+
+### Git Ignore
+
+Ensure `.env` files are excluded:
+
+```bash .gitignore
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+```
+
+### Secret Management
+
+<CardGroup cols={2}>
+  <Card title="Development" icon="laptop-code">
+    - Use `.env` files (gitignored)
+    - Document required variables in README
+    - Provide `.env.example` template
+  </Card>
+  
+  <Card title="Production" icon="server">
+    - Use secret management service (AWS Secrets Manager, HashiCorp Vault)
+    - Never store secrets in plain text
+    - Rotate secrets regularly
+    - Use principle of least privilege
+  </Card>
+</CardGroup>
+
+### Environment Template
+
+Provide a `.env.example` template:
+
+```bash .env.example
+# Server Configuration
+PORT=8080
+
+# Security (CHANGE IN PRODUCTION!)
+JWT_SECRET_KEY="REPLACE-WITH-SECURE-KEY"
+
+# Database Configuration
+SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/justina"
+SPRING_DATASOURCE_USERNAME="postgres"
+SPRING_DATASOURCE_PASSWORD="REPLACE-WITH-SECURE-PASSWORD"
+SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.postgresql.Driver"
+
+# JPA/Hibernate
+SPRING_JPA_HIBERNATE_DDL_AUTO="update"
+SPRING_JPA_SHOW_SQL="false"
+SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.PostgreSQLDialect"
+```
+
+## Troubleshooting
+
+### Common Issues
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `JWT_SECRET_KEY must not be null` | Missing JWT secret | Set `JWT_SECRET_KEY` environment variable |
+| `Unable to create initial connections` | Database connection failed | Verify database URL, credentials, and that database is running |
+| `Unknown entity: org.h2.Driver` | Wrong driver class | Set correct driver for your database (H2 vs PostgreSQL) |
+| `Schema validation failed` | Schema mismatch | Check `SPRING_JPA_HIBERNATE_DDL_AUTO` setting |
+| `HikariPool-1 - Connection is not available` | Database not reachable | Ensure database is running and accessible from application |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker and Docker Compose
+  </Card>
+  <Card title="Production Setup" icon="server" href="/deployment/production">
+    Production deployment considerations
+  </Card>
+</CardGroup>

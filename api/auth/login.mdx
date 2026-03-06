@@ -1,0 +1,158 @@
+---
+title: 'Login'
+api: 'POST /api/v1/auth/login'
+description: 'Authenticate user and return JWT token for simulator access'
+---
+
+Authenticates a user with username and password credentials. On successful authentication, returns a JWT token that can be used to access protected simulator endpoints. The token is also set as an HTTP-only secure cookie.
+
+## Request Body
+
+<ParamField body="username" type="string" required>
+  Username of the registered user
+  
+  - **Validation**: Required, 4-50 characters
+  - **Example**: `surgeon_master`
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User password
+  
+  - **Validation**: Required, 6-100 characters
+  - **Example**: `justina2024`
+</ParamField>
+
+## Response
+
+<ResponseField name="message" type="string">
+  Success message
+  
+  **Example**: `Login exitoso`
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  Unique identifier for the authenticated user (UUID format)
+  
+  **Example**: `550e8400-e29b-41d4-a716-446655440000`
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Username of the authenticated user
+  
+  **Example**: `surgeon_master`
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  JWT authentication token for API access
+  
+  **Example**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
+</ResponseField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST https://api.justina.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "surgeon_master",
+    "password": "justina2024"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.justina.com/api/v1/auth/login', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    username: 'surgeon_master',
+    password: 'justina2024'
+  })
+});
+
+const data = await response.json();
+console.log('Token:', data.token);
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.justina.com/api/v1/auth/login',
+    json={
+        'username': 'surgeon_master',
+        'password': 'justina2024'
+    }
+)
+
+data = response.json()
+print(f"Token: {data['token']}")
+```
+
+```java Java
+OkHttpClient client = new OkHttpClient();
+
+String json = "{\"username\":\"surgeon_master\",\"password\":\"justina2024\"}";
+
+RequestBody body = RequestBody.create(
+    json,
+    MediaType.parse("application/json")
+);
+
+Request request = new Request.Builder()
+    .url("https://api.justina.com/api/v1/auth/login")
+    .post(body)
+    .build();
+
+Response response = client.newCall(request).execute();
+String responseBody = response.body().string();
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200 Success
+{
+  "message": "Login exitoso",
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "surgeon_master",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzdXJnZW9uX21hc3RlciIsImV4cCI6MTY5ODc2NTQzMn0.xyz123abc456"
+}
+```
+
+```json 400 Bad Request - Invalid Data
+{
+  "username": "El username debe tener entre 4 y 50 caracteres",
+  "password": "La contraseña es obligatoria"
+}
+```
+
+```json 401 Unauthorized - Invalid Credentials
+{
+  "error": "Credenciales incorrectas",
+  "message": "El usuario o contraseña son incorrectos"
+}
+```
+
+</ResponseExample>
+
+## Cookie Behavior
+
+The JWT token is automatically set as an HTTP-only secure cookie with the following attributes:
+
+- **Name**: `jwt-token`
+- **HttpOnly**: `true` (prevents JavaScript access)
+- **Secure**: `true` (HTTPS only)
+- **SameSite**: `None` (allows cross-site requests)
+- **Max-Age**: `86400` seconds (24 hours)
+- **Path**: `/` (available throughout the application)
+
+## Error Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Authentication successful |
+| 400 | Invalid data or validation error |
+| 401 | Incorrect credentials |

@@ -1,0 +1,159 @@
+---
+title: 'Get Current User'
+api: 'GET /api/v1/auth/me'
+description: 'Retrieve information about the currently authenticated user'
+---
+
+Returns the profile information of the user associated with the provided JWT token. This endpoint requires authentication via JWT token in the Authorization header or as an HTTP-only cookie.
+
+## Authentication
+
+This endpoint requires a valid JWT token. Include it in one of the following ways:
+
+1. **Authorization Header**: `Bearer <token>`
+2. **HTTP-only Cookie**: `jwt-token=<token>` (automatically sent by browser)
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier for the user (UUID format)
+  
+  **Example**: `550e8400-e29b-41d4-a716-446655440000`
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Username of the authenticated user
+  
+  **Example**: `surgeon_master`
+</ResponseField>
+
+<ResponseField name="role" type="string">
+  User role in the system
+  
+  **Example**: `ROLE_USER` or `ROLE_ADMIN`
+</ResponseField>
+
+<RequestExample>
+
+```bash cURL
+curl -X GET https://api.justina.com/api/v1/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.justina.com/api/v1/auth/me', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+});
+
+const user = await response.json();
+console.log('User:', user);
+```
+
+```python Python
+import requests
+
+headers = {
+    'Authorization': f'Bearer {token}'
+}
+
+response = requests.get(
+    'https://api.justina.com/api/v1/auth/me',
+    headers=headers
+)
+
+user = response.json()
+print(f"Username: {user['username']}")
+```
+
+```java Java
+OkHttpClient client = new OkHttpClient();
+
+Request request = new Request.Builder()
+    .url("https://api.justina.com/api/v1/auth/me")
+    .header("Authorization", "Bearer " + token)
+    .get()
+    .build();
+
+Response response = client.newCall(request).execute();
+String responseBody = response.body().string();
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200 Success
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "surgeon_master",
+  "role": "ROLE_USER"
+}
+```
+
+```json 401 Unauthorized - Missing Token
+{
+  "error": "No token provided",
+  "message": "Authentication required to access this resource"
+}
+```
+
+```json 401 Unauthorized - Invalid Token
+{
+  "error": "Invalid token",
+  "message": "The provided token is invalid or expired"
+}
+```
+
+</ResponseExample>
+
+## Use Cases
+
+### Check Authentication Status
+Use this endpoint to verify if a user's session is still valid:
+
+```javascript
+async function isAuthenticated() {
+  try {
+    const response = await fetch('/api/v1/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+```
+
+### Load User Profile
+Retrieve user information to display in the application UI:
+
+```javascript
+async function loadUserProfile() {
+  const response = await fetch('/api/v1/auth/me', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  const user = await response.json();
+  
+  // Update UI with user info
+  document.getElementById('username').textContent = user.username;
+  document.getElementById('userId').textContent = user.id;
+}
+```
+
+## Error Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | User data retrieved successfully |
+| 401 | User not authenticated or invalid token |
+
+## Security Notes
+
+- JWT tokens expire after 24 hours by default
+- Tokens are validated on every request
+- Invalid or expired tokens will return 401 Unauthorized
+- The token must match a valid user in the system

@@ -1,0 +1,208 @@
+---
+title: "TrajectoryDTO"
+description: "Complete surgical trajectory data model with movements and analysis"
+---
+
+## Overview
+
+`TrajectoryDTO` represents a complete surgical session trajectory, containing all instrument movements, timing information, and optional AI analysis results. This is the primary response model for retrieving surgery session data.
+
+## Model Structure
+
+<ResponseField name="surgeryId" type="UUID">
+  Unique identifier for the surgery session.
+  
+  **Format**: Standard UUID (e.g., `"550e8400-e29b-41d4-a716-446655440000"`)
+</ResponseField>
+
+<ResponseField name="startTime" type="LocalDateTime">
+  Timestamp when the surgery session was initiated.
+  
+  **Format**: ISO 8601 date-time (e.g., `"2024-03-06T14:30:00"`)
+</ResponseField>
+
+<ResponseField name="endTime" type="LocalDateTime">
+  Timestamp when the surgery session was completed.
+  
+  **Format**: ISO 8601 date-time (e.g., `"2024-03-06T15:45:00"`)
+  
+  **Note**: May be `null` for active/incomplete sessions
+</ResponseField>
+
+<ResponseField name="movements" type="List<Movement>">
+  Ordered list of all instrument movements recorded during the surgery.
+  
+  Each movement contains:
+  - `coordinates` (double[]): Position data [x, y] or [x, y, z]
+  - `event` (SurgeryEvent): Associated surgical event
+  - `timestamp` (long): Unix timestamp in milliseconds
+  
+  See [Movement Structure](#movement-structure) below for details.
+</ResponseField>
+
+<ResponseField name="score" type="Double">
+  AI-generated performance score for the surgery.
+  
+  **Range**: 0.0 to 100.0
+  
+  **Note**: May be `null` if analysis has not been performed
+</ResponseField>
+
+<ResponseField name="feedback" type="String">
+  AI-generated textual feedback and recommendations.
+  
+  **Note**: May be `null` if analysis has not been performed
+</ResponseField>
+
+## Movement Structure
+
+<Expandable title="Movement Model Details">
+
+The `Movement` record represents a single telemetry point in the surgical trajectory.
+
+<ResponseField name="coordinates" type="double[]">
+  Spatial coordinates of the instrument position.
+  
+  **Format**: 
+  - 2D: `[x, y]`
+  - 3D: `[x, y, z]`
+</ResponseField>
+
+<ResponseField name="event" type="SurgeryEvent">
+  The surgical event type associated with this movement.
+  
+  See [SurgeryEvent](/api/models/surgery-events) for all possible values.
+</ResponseField>
+
+<ResponseField name="timestamp" type="long">
+  Unix timestamp in milliseconds when this movement was recorded.
+</ResponseField>
+
+**Source**: `backend/src/main/java/project/Justina/domain/model/Movement.java`
+
+</Expandable>
+
+## JSON Examples
+
+### Complete Analyzed Surgery
+
+```json
+{
+  "surgeryId": "550e8400-e29b-41d4-a716-446655440000",
+  "startTime": "2024-03-06T14:30:00",
+  "endTime": "2024-03-06T15:45:00",
+  "movements": [
+    {
+      "coordinates": [0.0, 0.0],
+      "event": "START",
+      "timestamp": 1709740200000
+    },
+    {
+      "coordinates": [125.5, 340.2],
+      "event": "NONE",
+      "timestamp": 1709740205000
+    },
+    {
+      "coordinates": [145.3, 298.7, 22.1],
+      "event": "TUMOR_TOUCH",
+      "timestamp": 1709740210000
+    },
+    {
+      "coordinates": [145.3, 298.7, 22.1],
+      "event": "TUMOR_REMOVAL",
+      "timestamp": 1709740250000
+    },
+    {
+      "coordinates": [0.0, 0.0],
+      "event": "FINISH",
+      "timestamp": 1709744700000
+    }
+  ],
+  "score": 87.5,
+  "feedback": "Excellent precision during tumor removal. Recommend improving approach angle to minimize kidney contact risk."
+}
+```
+
+### Active Surgery (In Progress)
+
+```json
+{
+  "surgeryId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "startTime": "2024-03-06T16:00:00",
+  "endTime": null,
+  "movements": [
+    {
+      "coordinates": [0.0, 0.0],
+      "event": "START",
+      "timestamp": 1709746800000
+    },
+    {
+      "coordinates": [98.2, 201.5],
+      "event": "NONE",
+      "timestamp": 1709746805000
+    }
+  ],
+  "score": null,
+  "feedback": null
+}
+```
+
+### Minimal Trajectory (Early Session)
+
+```json
+{
+  "surgeryId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "startTime": "2024-03-06T17:15:00",
+  "endTime": null,
+  "movements": [],
+  "score": null,
+  "feedback": null
+}
+```
+
+## Usage Context
+
+### REST API Endpoints
+
+**Get Surgery Trajectory**
+```
+GET /api/surgeries/{surgeryId}
+Response: TrajectoryDTO
+```
+
+**Get All User Surgeries**
+```
+GET /api/surgeries
+Response: List<TrajectoryDTO>
+```
+
+### Data Flow
+
+1. **Session Creation**: Empty trajectory with `startTime` set
+2. **Real-time Updates**: Movements added via WebSocket telemetry
+3. **Session Completion**: `endTime` set, duration calculated
+4. **AI Analysis**: Score and feedback generated and added
+5. **Retrieval**: Complete TrajectoryDTO returned to client
+
+## Relationship to Internal Models
+
+`TrajectoryDTO` is constructed from the internal `SurgerySession` domain model:
+
+- `surgeryId` → `SurgerySession.id`
+- `startTime` → `SurgerySession.startTime`
+- `endTime` → `SurgerySession.endTime`
+- `movements` → `SurgerySession.trajectory`
+- `score` → `SurgerySession.score`
+- `feedback` → `SurgerySession.feedback`
+
+The DTO provides a clean, immutable representation for API responses.
+
+## Related Models
+
+- [TelemetryDTO](/api/models/telemetry) - Input model for adding movements
+- [AnalysisDTO](/api/models/analysis) - Input model for AI analysis results
+- [SurgeryEvent](/api/models/surgery-events) - Event type enumeration
+
+## Source Location
+
+`backend/src/main/java/project/Justina/domain/dto/TrajectoryDTO.java`

@@ -1,0 +1,247 @@
+---
+title: 'WebSocket Overview'
+description: 'Real-time communication architecture for surgical simulation telemetry and AI notifications'
+---
+
+## Architecture
+
+Justina Core Backend implements a dual WebSocket system for real-time bidirectional communication:
+
+- **Simulation WebSocket** (`/ws/simulation`) - Receives telemetry data from surgical simulations
+- **AI WebSocket** (`/ws/ai`) - Notifies AI services when new surgery sessions are completed
+
+## Configuration
+
+WebSocket endpoints are configured in `WebSocketConfig.java`:
+
+```java
+@Configuration
+@EnableWebSocket
+@RequiredArgsConstructor
+public class WebSocketConfig implements WebSocketConfigurer {
+
+    private final SimulationWebSocketHandler simulationHandler;
+    private final HandshakeInterceptorImpl handshakeInterceptor;
+    private final AIWebSocketHandler aiHandler;
+
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        registry.addHandler(simulationHandler, "/ws/simulation")
+                .addInterceptors(handshakeInterceptor)
+                .setAllowedOrigins("*");
+
+        registry.addHandler(aiHandler, "/ws/ai")
+                .addInterceptors(handshakeInterceptor)
+                .setAllowedOrigins("*");
+    }
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/WebSocketConfig.java:19-27`
+
+## Endpoints
+
+### Simulation Endpoint
+
+```
+ws://localhost:8080/ws/simulation?token=<JWT_TOKEN>
+```
+
+Receives real-time telemetry from surgical simulation clients.
+
+**Authentication:** JWT token via query parameter  
+**Required Role:** `ROLE_SURGEON` or `ROLE_STUDENT`  
+**Handler:** `SimulationWebSocketHandler`
+
+### AI Notification Endpoint
+
+```
+ws://localhost:8080/ws/ai?token=<JWT_TOKEN>
+```
+
+Notifies AI services when surgery sessions complete.
+
+**Authentication:** JWT token via query parameter  
+**Required Role:** `ROLE_AI`  
+**Handler:** `AIWebSocketHandler`
+
+## Authentication Flow
+
+All WebSocket connections are authenticated using JWT tokens passed as query parameters:
+
+### 1. Token Extraction
+
+The `HandshakeInterceptorImpl` extracts the token from the connection URL:
+
+```java
+String token = UriComponentsBuilder
+        .fromUri(request.getURI())
+        .build()
+        .getQueryParams()
+        .getFirst("token");
+
+if (token == null || token.isEmpty()) {
+    return false; // Reject handshake
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/HandshakeInterceptorImpl.java:28-36`
+
+### 2. Token Validation
+
+The JWT is validated and user information is extracted:
+
+```java
+try {
+    String username = jwtService.extractUsername(token);
+    UUID userId = jwtService.extractUserId(token);
+    String role = jwtService.extractRole(token);
+
+    attributes.put("SURGEON_ID", userId);
+    attributes.put("USERNAME", username);
+    attributes.put("ROLE", role);
+
+    return true;
+} catch (Exception e) {
+    return false; // Invalid token
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/HandshakeInterceptorImpl.java:38-50`
+
+### 3. Session Attributes
+
+After successful authentication, the following attributes are available in the WebSocket session:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `SURGEON_ID` | `UUID` | Unique identifier of the authenticated user |
+| `USERNAME` | `String` | Username from JWT token |
+| `ROLE` | `String` | User role (e.g., `ROLE_SURGEON`, `ROLE_AI`) |
+
+## Connection Examples
+
+### JavaScript Client
+
+```javascript
+const token = localStorage.getItem('jwtToken');
+const ws = new WebSocket(`ws://localhost:8080/ws/simulation?token=${token}`);
+
+ws.onopen = () => {
+    console.log('Connected to simulation WebSocket');
+};
+
+ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+};
+
+ws.onclose = (event) => {
+    if (event.code === 1008) {
+        console.error('Authentication failed - invalid token');
+    }
+};
+```
+
+### Python Client
+
+```python
+import websocket
+import json
+
+token = "your_jwt_token_here"
+ws_url = f"ws://localhost:8080/ws/simulation?token={token}"
+
+ws = websocket.create_connection(ws_url)
+print("Connected to simulation WebSocket")
+
+# Send telemetry
+telemetry = {
+    "coordinates": [10.5, 20.3, 15.7],
+    "event": "TUMOR_TOUCH",
+    "timestamp": 1234567890
+}
+ws.send(json.dumps(telemetry))
+```
+
+### Unity C# Client
+
+```csharp
+using UnityEngine;
+using WebSocketSharp;
+
+public class SimulationClient : MonoBehaviour
+{
+    private WebSocket ws;
+    private string token = "your_jwt_token";
+
+    void Start()
+    {
+        string url = $"ws://localhost:8080/ws/simulation?token={token}";
+        ws = new WebSocket(url);
+        
+        ws.OnOpen += (sender, e) =>
+        {
+            Debug.Log("WebSocket connected");
+        };
+        
+        ws.OnError += (sender, e) =>
+        {
+            Debug.LogError($"WebSocket error: {e.Message}");
+        };
+        
+        ws.Connect();
+    }
+}
+```
+
+## Security Considerations
+
+### Connection Validation
+
+- All connections require a valid JWT token
+- Tokens are validated on handshake, not on every message
+- Invalid tokens result in connection rejection (HTTP 403)
+- Role-based access control is enforced per endpoint
+
+### Session Security
+
+The simulation handler validates surgeon identity on every message:
+
+```java
+UUID surgeonId = (UUID) session.getAttributes().get("SURGEON_ID");
+
+if (surgeonId == null) {
+    session.close(CloseStatus.POLICY_VIOLATION);
+    return;
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:56-62`
+
+### Close Status Codes
+
+| Code | Status | Meaning |
+|------|--------|----------|
+| 1003 | `BAD_DATA` | Invalid telemetry data format |
+| 1008 | `POLICY_VIOLATION` | Missing authentication or unauthorized |
+
+## CORS Configuration
+
+Both endpoints allow connections from all origins (`*`). For production deployments, restrict origins to your frontend domains:
+
+```java
+registry.addHandler(simulationHandler, "/ws/simulation")
+        .addInterceptors(handshakeInterceptor)
+        .setAllowedOrigins("https://yourdomain.com", "https://app.yourdomain.com");
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Simulation Telemetry" icon="chart-line" href="/websocket/simulation">
+    Learn how to send surgical telemetry data
+  </Card>
+  <Card title="AI Notifications" icon="bell" href="/websocket/ai-notifications">
+    Integrate with AI analysis services
+  </Card>
+</CardGroup>

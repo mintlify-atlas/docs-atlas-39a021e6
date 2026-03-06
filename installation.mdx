@@ -1,0 +1,704 @@
+---
+title: Installation
+description: Complete setup guide for local development and production deployment
+---
+
+This guide covers everything you need to install and configure Justina Core Backend for both development and production environments.
+
+## System Requirements
+
+### Minimum Requirements
+
+| Component | Version |
+|-----------|---------|
+| **Java JDK** | 21 or higher |
+| **Maven** | 3.9+ (or use included Maven wrapper) |
+| **RAM** | 2GB minimum, 4GB recommended |
+| **Disk Space** | 500MB for dependencies and build artifacts |
+
+### Optional (Production)
+
+| Component | Version | Purpose |
+|-----------|---------|---------|
+| **PostgreSQL** | 15+ | Production database |
+| **Docker** | 20.10+ | Containerized deployment |
+| **Docker Compose** | 2.0+ | Multi-container orchestration |
+
+## Installation Methods
+
+<Tabs>
+
+<Tab title="Maven (Recommended)">
+
+### Using Maven Wrapper (No Installation Required)
+
+The project includes the Maven wrapper, so you don't need to install Maven separately.
+
+<Steps>
+
+<Step title="Clone the repository">
+
+```bash
+git clone <repository-url>
+cd backend
+```
+
+</Step>
+
+<Step title="Set up environment variables">
+
+Create a `.env` file or export environment variables. For development, you can use H2 in-memory database:
+
+```bash .env (Development)
+# Server Configuration
+PORT=8080
+
+# JWT Secret (generate a secure random string)
+JWT_SECRET_KEY=your-secret-key-min-256-bits-for-hs256-algorithm
+
+# H2 In-Memory Database (Development)
+SPRING_DATASOURCE_URL=jdbc:h2:mem:justina
+SPRING_DATASOURCE_USERNAME=sa
+SPRING_DATASOURCE_PASSWORD=
+SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
+
+# JPA Configuration
+SPRING_JPA_HIBERNATE_DDL_AUTO=create-drop
+SPRING_JPA_SHOW_SQL=true
+SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.H2Dialect
+```
+
+<Warning>
+The `JWT_SECRET_KEY` must be at least 256 bits (32 characters) for HS256 algorithm. Generate a secure key:
+
+```bash
+openssl rand -base64 32
+```
+</Warning>
+
+</Step>
+
+<Step title="Build the project">
+
+```bash
+./mvnw clean install
+```
+
+This will:
+- Download all dependencies from Maven Central
+- Compile the Java source code
+- Run unit and integration tests
+- Package the application as a JAR file
+
+**Expected output:**
+```
+[INFO] BUILD SUCCESS
+[INFO] Total time: 45.234 s
+[INFO] Finished at: 2024-03-06T10:30:00Z
+```
+
+</Step>
+
+<Step title="Run the application">
+
+<CodeGroup>
+
+```bash Spring Boot Maven Plugin
+./mvnw spring-boot:run
+```
+
+```bash Executable JAR
+java -jar target/Justina-0.0.1-SNAPSHOT.jar
+```
+
+```bash With Custom Port
+PORT=8081 ./mvnw spring-boot:run
+```
+
+</CodeGroup>
+
+**Success indicators:**
+```
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v4.0.2)
+
+✅ Usuarios de sistema verificados/creados.
+Started JustinaApplication in 4.567 seconds
+```
+
+</Step>
+
+<Step title="Verify installation">
+
+Check that the server is running:
+
+```bash
+curl http://localhost:8080/swagger-ui/index.html
+```
+
+Or open [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html) in your browser.
+
+</Step>
+
+</Steps>
+
+</Tab>
+
+<Tab title="Docker">
+
+### Using Docker (Production-Ready)
+
+<Steps>
+
+<Step title="Review the Dockerfile">
+
+The project includes a multi-stage Dockerfile that builds the application:
+
+```dockerfile backend/Dockerfile
+# Base image with Java 21
+FROM eclipse-temurin:21-jdk
+
+# Working directory
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Make Maven wrapper executable
+RUN chmod +x mvnw
+
+# Build the application
+RUN ./mvnw clean package -DskipTests
+
+# Expose port
+EXPOSE 8080
+
+# Start the application
+CMD ["sh", "-c", "java -jar target/*.jar --server.port=${PORT}"]
+```
+
+</Step>
+
+<Step title="Build the Docker image">
+
+```bash
+cd backend
+docker build -t justina-backend:latest .
+```
+
+This may take 5-10 minutes on first build as it downloads dependencies.
+
+</Step>
+
+<Step title="Run with Docker">
+
+<CodeGroup>
+
+```bash H2 In-Memory (Development)
+docker run -p 8080:8080 \
+  -e JWT_SECRET_KEY="your-secret-key-here" \
+  -e SPRING_DATASOURCE_URL="jdbc:h2:mem:justina" \
+  -e SPRING_DATASOURCE_USERNAME="sa" \
+  -e SPRING_DATASOURCE_PASSWORD="" \
+  -e SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.h2.Driver" \
+  -e SPRING_JPA_HIBERNATE_DDL_AUTO="create-drop" \
+  -e SPRING_JPA_SHOW_SQL="false" \
+  -e SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.H2Dialect" \
+  justina-backend:latest
+```
+
+```bash PostgreSQL (Production)
+docker run -p 8080:8080 \
+  -e JWT_SECRET_KEY="your-secret-key-here" \
+  -e SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/justina" \
+  -e SPRING_DATASOURCE_USERNAME="justina_user" \
+  -e SPRING_DATASOURCE_PASSWORD="secure_password" \
+  -e SPRING_DATASOURCE_DRIVER_CLASS_NAME="org.postgresql.Driver" \
+  -e SPRING_JPA_HIBERNATE_DDL_AUTO="update" \
+  -e SPRING_JPA_SHOW_SQL="false" \
+  -e SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT="org.hibernate.dialect.PostgreSQLDialect" \
+  --network=justina-network \
+  justina-backend:latest
+```
+
+</CodeGroup>
+
+</Step>
+
+</Steps>
+
+</Tab>
+
+<Tab title="Docker Compose">
+
+### Using Docker Compose (Full Stack)
+
+<Steps>
+
+<Step title="Create docker-compose.yml">
+
+Create a `docker-compose.yml` file for the complete stack:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: justina-postgres
+    environment:
+      POSTGRES_DB: justina
+      POSTGRES_USER: justina_user
+      POSTGRES_PASSWORD: justina_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U justina_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: justina-backend
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/justina
+      SPRING_DATASOURCE_USERNAME: justina_user
+      SPRING_DATASOURCE_PASSWORD: justina_pass
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "false"
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+```
+
+</Step>
+
+<Step title="Create environment file">
+
+Create a `.env` file in the same directory:
+
+```bash .env
+JWT_SECRET_KEY=your-256-bit-secret-key-generated-with-openssl-rand-base64-32
+```
+
+</Step>
+
+<Step title="Start the stack">
+
+```bash
+docker-compose up -d
+```
+
+**Check logs:**
+```bash
+docker-compose logs -f backend
+```
+
+**Stop the stack:**
+```bash
+docker-compose down
+```
+
+**Stop and remove volumes:**
+```bash
+docker-compose down -v
+```
+
+</Step>
+
+</Steps>
+
+</Tab>
+
+</Tabs>
+
+## Configuration
+
+### Environment Variables Reference
+
+All configuration is done through environment variables as defined in `application.properties`:
+
+```properties backend/src/main/resources/application.properties
+spring.application.name=Justina
+server.port=${PORT:8080}
+jwt.secret.key=${JWT_SECRET_KEY}
+
+spring.datasource.url=${SPRING_DATASOURCE_URL}
+spring.datasource.username=${SPRING_DATASOURCE_USERNAME}
+spring.datasource.password=${SPRING_DATASOURCE_PASSWORD}
+spring.datasource.driver-class-name=${SPRING_DATASOURCE_DRIVER_CLASS_NAME}
+
+spring.jpa.hibernate.ddl-auto=${SPRING_JPA_HIBERNATE_DDL_AUTO}
+spring.jpa.show-sql=${SPRING_JPA_SHOW_SQL}
+spring.jpa.properties.hibernate.dialect=${SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT}
+```
+
+### Required Environment Variables
+
+<ParamField path="JWT_SECRET_KEY" type="string" required>
+  Secret key for signing JWT tokens. Must be at least 256 bits (32 characters).
+  
+  **Generate secure key:**
+  ```bash
+  openssl rand -base64 32
+  ```
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_URL" type="string" required>
+  JDBC connection URL for the database.
+  
+  **H2 (dev):** `jdbc:h2:mem:justina`
+  
+  **PostgreSQL (prod):** `jdbc:postgresql://localhost:5432/justina`
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_USERNAME" type="string" required>
+  Database username
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_PASSWORD" type="string" required>
+  Database password (can be empty for H2)
+</ParamField>
+
+### Optional Environment Variables
+
+<ParamField path="PORT" type="number" default="8080">
+  HTTP server port
+</ParamField>
+
+<ParamField path="SPRING_DATASOURCE_DRIVER_CLASS_NAME" type="string" default="org.h2.Driver">
+  JDBC driver class name
+  
+  **H2:** `org.h2.Driver`
+  
+  **PostgreSQL:** `org.postgresql.Driver`
+</ParamField>
+
+<ParamField path="SPRING_JPA_HIBERNATE_DDL_AUTO" type="string" default="create-drop">
+  Hibernate schema generation strategy
+  
+  - `create-drop`: Drop and recreate schema on startup (dev only)
+  - `update`: Update schema automatically (prod)
+  - `validate`: Validate schema matches entities
+  - `none`: No schema management
+</ParamField>
+
+<ParamField path="SPRING_JPA_SHOW_SQL" type="boolean" default="false">
+  Log all SQL queries to console (useful for debugging)
+</ParamField>
+
+<ParamField path="SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT" type="string" default="org.hibernate.dialect.H2Dialect">
+  Hibernate SQL dialect
+  
+  **H2:** `org.hibernate.dialect.H2Dialect`
+  
+  **PostgreSQL:** `org.hibernate.dialect.PostgreSQLDialect`
+</ParamField>
+
+## PostgreSQL Setup (Production)
+
+<Steps>
+
+<Step title="Install PostgreSQL">
+
+<CodeGroup>
+
+```bash Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+```
+
+```bash macOS (Homebrew)
+brew install postgresql@15
+brew services start postgresql@15
+```
+
+```bash Docker
+docker run --name justina-postgres \
+  -e POSTGRES_DB=justina \
+  -e POSTGRES_USER=justina_user \
+  -e POSTGRES_PASSWORD=secure_password \
+  -p 5432:5432 \
+  -d postgres:15-alpine
+```
+
+</CodeGroup>
+
+</Step>
+
+<Step title="Create database and user">
+
+Connect to PostgreSQL:
+```bash
+sudo -u postgres psql
+```
+
+Run the following SQL:
+```sql
+CREATE DATABASE justina;
+CREATE USER justina_user WITH ENCRYPTED PASSWORD 'secure_password';
+GRANT ALL PRIVILEGES ON DATABASE justina TO justina_user;
+\q
+```
+
+</Step>
+
+<Step title="Configure environment variables">
+
+Update your environment variables for PostgreSQL:
+
+```bash
+export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/justina
+export SPRING_DATASOURCE_USERNAME=justina_user
+export SPRING_DATASOURCE_PASSWORD=secure_password
+export SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+export SPRING_JPA_HIBERNATE_DDL_AUTO=update
+export SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.PostgreSQLDialect
+```
+
+</Step>
+
+<Step title="Restart the application">
+
+```bash
+./mvnw spring-boot:run
+```
+
+Verify PostgreSQL connection in logs:
+```
+HikkaariPool-1 - Starting...
+HikkaariPool-1 - Start completed.
+```
+
+</Step>
+
+</Steps>
+
+## Default Users
+
+On first startup, the application automatically creates test users via `DataInitializer.java`:
+
+```java DataInitializer.java
+@Component
+@RequiredArgsConstructor
+public class DataInitializer implements CommandLineRunner {
+
+    private final AuthService authService;
+    private final UserRepository userRepository;
+
+    @Override
+    public void run(String... args) {
+        // Create Master Surgeon for testing
+        authService.registerSystemUser("surgeon_master", "justina2024", "ROLE_SURGEON");
+
+        // Create Justina AI system user
+        authService.registerSystemUser("ia_justina", "ia_secret_2024", "ROLE_AI");
+
+        System.out.println("✅ Usuarios de sistema verificados/creados.");
+    }
+}
+```
+
+<Warning>
+**Change these credentials in production!** These are development defaults and should never be used in production environments.
+</Warning>
+
+| Username | Password | Role | Description |
+|----------|----------|------|-------------|
+| `surgeon_master` | `justina2024` | ROLE_SURGEON | Test surgeon account for development |
+| `ia_justina` | `ia_secret_2024` | ROLE_AI | AI system account for receiving analysis |
+
+## Verify Installation
+
+Run these commands to verify everything is working:
+
+<Steps>
+
+<Step title="Check server health">
+
+```bash
+curl http://localhost:8080/swagger-ui/index.html
+```
+
+You should see the Swagger UI HTML response.
+
+</Step>
+
+<Step title="Test authentication">
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "surgeon_master", "password": "justina2024"}'
+```
+
+Expected response:
+```json
+{
+  "message": "Login exitoso",
+  "userId": "...",
+  "username": "surgeon_master",
+  "token": "eyJhbGci..."
+}
+```
+
+</Step>
+
+<Step title="Access protected endpoint">
+
+```bash
+TOKEN="your_jwt_token_from_previous_step"
+
+curl -X GET http://localhost:8080/api/v1/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Expected response:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "surgeon_master",
+  "role": "ROLE_SURGEON"
+}
+```
+
+</Step>
+
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+
+<Accordion title="BUILD FAILURE: Java version mismatch">
+**Error:** `Unsupported class file major version 65`
+
+**Solution:** Ensure you're using Java 21 or higher:
+```bash
+java -version
+# Should show: openjdk version "21.0.x"
+```
+
+Install Java 21:
+```bash
+# Ubuntu/Debian
+sudo apt install openjdk-21-jdk
+
+# macOS (Homebrew)
+brew install openjdk@21
+
+# Or use SDKMAN
+sdk install java 21.0.2-tem
+```
+</Accordion>
+
+<Accordion title="Port 8080 already in use">
+**Error:** `Web server failed to start. Port 8080 was already in use.`
+
+**Solution 1:** Change the port via environment variable:
+```bash
+PORT=8081 ./mvnw spring-boot:run
+```
+
+**Solution 2:** Kill the process using port 8080:
+```bash
+# Find the process
+lsof -i :8080
+
+# Kill it
+kill -9 <PID>
+```
+</Accordion>
+
+<Accordion title="JWT_SECRET_KEY not set">
+**Error:** `Could not resolve placeholder 'JWT_SECRET_KEY'`
+
+**Solution:** Set the JWT_SECRET_KEY environment variable:
+```bash
+export JWT_SECRET_KEY=$(openssl rand -base64 32)
+./mvnw spring-boot:run
+```
+
+Or create a `.env` file with:
+```
+JWT_SECRET_KEY=your-generated-secret-key-here
+```
+</Accordion>
+
+<Accordion title="PostgreSQL connection refused">
+**Error:** `Connection to localhost:5432 refused`
+
+**Solution:** Ensure PostgreSQL is running:
+```bash
+# Check status
+sudo systemctl status postgresql
+
+# Start if stopped
+sudo systemctl start postgresql
+
+# Enable on boot
+sudo systemctl enable postgresql
+```
+
+Verify PostgreSQL is listening:
+```bash
+sudo netstat -plnt | grep 5432
+```
+</Accordion>
+
+<Accordion title="Maven wrapper permission denied">
+**Error:** `Permission denied: ./mvnw`
+
+**Solution:** Make the Maven wrapper executable:
+```bash
+chmod +x mvnw
+./mvnw spring-boot:run
+```
+</Accordion>
+
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+  Make your first authenticated API call in 5 minutes
+</Card>
+
+<Card title="API Reference" icon="book" href="/api/auth/login">
+  Explore all available endpoints
+</Card>
+
+<Card title="WebSocket Guide" icon="bolt" href="/websocket/overview">
+  Implement real-time telemetry streaming
+</Card>
+
+<Card title="Production Deployment" icon="server" href="/deployment/production">
+  Deploy to production with Docker and PostgreSQL
+</Card>
+
+</CardGroup>
+
+<Info>
+For interactive API testing, visit the Swagger UI at [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html) after starting the server.
+</Info>

@@ -1,0 +1,408 @@
+---
+title: 'AI WebSocket'
+description: 'Real-time notifications for AI analysis service'
+---
+
+## Overview
+
+The AI WebSocket endpoint provides real-time notifications to the AI analysis service when new surgery sessions are completed and ready for analysis. This is a server-to-AI push notification channel.
+
+**Handler**: `AIWebSocketHandler` (backend/src/main/java/project/Justina/infrastructure/websocket/AIWebSocketHandler.java:17)
+
+## Endpoint
+
+```
+ws://your-domain/ws/ai?token={JWT_TOKEN}
+```
+
+### Authentication
+
+JWT authentication is required via query parameter. The token must contain the `ROLE_AI` role claim.
+
+**Query Parameters:**
+- `token` (required): Valid JWT token with `ROLE_AI` role
+
+**Token Claims Required:**
+- `role`: Must be `"ROLE_AI"`
+
+### Connection Handshake
+
+**Success Response:**
+Upon successful connection with valid AI role, the server sends:
+
+```json
+{
+  "status": "connected",
+  "message": "IA conectada exitosamente"
+}
+```
+
+**Failure Scenarios:**
+- Missing token → HTTP 401 (handshake rejected)
+- Invalid token → HTTP 401 (handshake rejected)
+- Missing `ROLE_AI` role → Close with `POLICY_VIOLATION` (1008)
+- Wrong role → Close with `POLICY_VIOLATION` (1008)
+
+## Message Format
+
+### Server → AI: Surgery Completion Notification
+
+When a surgery session is completed (via the Simulation WebSocket), the server automatically pushes a notification to all connected AI clients:
+
+<ParamField body="event" type="string">
+  Event type identifier. Always `"NEW_SURGERY"` for surgery completion notifications.
+</ParamField>
+
+<ParamField body="surgeryId" type="string">
+  UUID of the completed surgery session available for analysis.
+</ParamField>
+
+#### Example Notification
+
+```json
+{
+  "event": "NEW_SURGERY",
+  "surgeryId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### AI → Server: Optional Messages
+
+The AI client may send messages to the server, though the current implementation only logs them:
+
+```json
+{
+  "status": "processing",
+  "surgeryId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+<Info>
+The server currently only logs incoming messages from AI clients. Future versions may implement request-response patterns for AI queries.
+</Info>
+
+## Connection Lifecycle
+
+1. **Connection**: AI service connects with valid JWT token containing `ROLE_AI`
+2. **Role Verification**: Server validates the `ROLE` attribute from token claims (backend/src/main/java/project/Justina/infrastructure/websocket/AIWebSocketHandler.java:27)
+3. **Registration**: Session is stored in static `aiSessions` map
+4. **Confirmation**: Server sends connection success message
+5. **Notification Loop**: Server pushes `NEW_SURGERY` events as they occur
+6. **Disconnection**: Session is removed from `aiSessions` map
+
+## Notification Trigger
+
+Notifications are triggered by the static method `AIWebSocketHandler.notificarNuevaCirugia()` called from:
+- `SimulationWebSocketHandler` when a `FINISH` event is processed (backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:81)
+
+```java
+// Triggered automatically on surgery completion
+AIWebSocketHandler.notificarNuevaCirugia(surgery.getId());
+```
+
+## Close Status Codes
+
+| Code | Constant | Reason |
+|------|----------|--------|
+| 1000 | `NORMAL` | Clean disconnection |
+| 1008 | `POLICY_VIOLATION` | Missing or invalid `ROLE_AI` claim |
+
+## Security
+
+**Authentication:** JWT token required in query parameter
+
+**Authorization:** Token must contain `role: "ROLE_AI"` claim (backend/src/main/java/project/Justina/infrastructure/websocket/AIWebSocketHandler.java:27)
+
+**CORS:** Allowed origins: `*` (configured in `WebSocketConfig`)
+
+**Single Instance:** While multiple AI clients can connect, typically only one AI service instance should be connected. The implementation uses a map to support horizontal scaling if needed.
+
+## Client Examples
+
+### JavaScript (Node.js)
+
+```javascript
+const WebSocket = require('ws');
+
+const token = 'your.ai.jwt.token'; // Token with ROLE_AI
+const ws = new WebSocket(`ws://localhost:8080/ws/ai?token=${token}`);
+
+ws.on('open', () => {
+  console.log('AI service connected to WebSocket');
+});
+
+ws.on('message', (data) => {
+  const notification = JSON.parse(data);
+  
+  if (notification.status === 'connected') {
+    console.log('Connection confirmed:', notification.message);
+    return;
+  }
+  
+  if (notification.event === 'NEW_SURGERY') {
+    console.log(`New surgery available: ${notification.surgeryId}`);
+    processSurgery(notification.surgeryId);
+  }
+});
+
+ws.on('close', (code, reason) => {
+  console.log(`Connection closed: ${code} - ${reason}`);
+  // Reconnect logic
+  setTimeout(() => connectAI(), 5000);
+});
+
+ws.on('error', (error) => {
+  console.error('WebSocket error:', error);
+});
+
+async function processSurgery(surgeryId) {
+  // Fetch surgery data via REST API
+  const response = await fetch(`http://localhost:8080/api/surgeries/${surgeryId}`);
+  const surgery = await response.json();
+  
+  // Perform AI analysis
+  console.log('Analyzing surgery...', surgery);
+  
+  // Optional: Send status update
+  ws.send(JSON.stringify({
+    status: 'processing',
+    surgeryId: surgeryId
+  }));
+}
+```
+
+### Python (websocket-client)
+
+```python
+import websocket
+import json
+import requests
+import time
+
+token = "your.ai.jwt.token"  # Token with ROLE_AI
+url = f"ws://localhost:8080/ws/ai?token={token}"
+
+def on_message(ws, message):
+    data = json.loads(message)
+    
+    if data.get("status") == "connected":
+        print(f"Connection confirmed: {data['message']}")
+        return
+    
+    if data.get("event") == "NEW_SURGERY":
+        surgery_id = data["surgeryId"]
+        print(f"New surgery available: {surgery_id}")
+        process_surgery(surgery_id, ws)
+
+def on_error(ws, error):
+    print(f"Error: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    print(f"Connection closed: {close_status_code} - {close_msg}")
+    # Reconnect after delay
+    time.sleep(5)
+    connect_ai()
+
+def on_open(ws):
+    print("AI service connected to WebSocket")
+
+def process_surgery(surgery_id, ws):
+    # Fetch surgery data via REST API
+    response = requests.get(f"http://localhost:8080/api/surgeries/{surgery_id}")
+    surgery = response.json()
+    
+    print(f"Analyzing surgery: {surgery}")
+    
+    # Optional: Send status update
+    ws.send(json.dumps({
+        "status": "processing",
+        "surgeryId": surgery_id
+    }))
+    
+    # Perform AI analysis
+    analysis_result = analyze_movements(surgery)
+    
+    # Post analysis results via REST API
+    requests.post(
+        f"http://localhost:8080/api/surgeries/{surgery_id}/analysis",
+        json=analysis_result
+    )
+
+def analyze_movements(surgery):
+    # AI analysis logic
+    return {
+        "score": 85,
+        "metrics": {"precision": 0.92, "efficiency": 0.78}
+    }
+
+def connect_ai():
+    ws = websocket.WebSocketApp(url,
+                                on_open=on_open,
+                                on_message=on_message,
+                                on_error=on_error,
+                                on_close=on_close)
+    ws.run_forever()
+
+if __name__ == "__main__":
+    connect_ai()
+```
+
+### Java (Spring WebSocket Client)
+
+```java
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.client.WebSocketClient;
+import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+
+public class AIWebSocketClient extends TextWebSocketHandler {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private WebSocketSession session;
+    
+    public void connect(String aiToken) throws Exception {
+        WebSocketClient client = new StandardWebSocketClient();
+        String uri = "ws://localhost:8080/ws/ai?token=" + aiToken;
+        
+        this.session = client.execute(this, uri).get();
+    }
+    
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) 
+            throws Exception {
+        JsonNode json = objectMapper.readTree(message.getPayload());
+        
+        if (json.has("status") && "connected".equals(json.get("status").asText())) {
+            System.out.println("AI service connected: " + json.get("message").asText());
+            return;
+        }
+        
+        if (json.has("event") && "NEW_SURGERY".equals(json.get("event").asText())) {
+            String surgeryId = json.get("surgeryId").asText();
+            System.out.println("New surgery available: " + surgeryId);
+            processSurgery(surgeryId);
+        }
+    }
+    
+    private void processSurgery(String surgeryId) throws Exception {
+        // Fetch surgery data and perform analysis
+        System.out.println("Processing surgery: " + surgeryId);
+        
+        // Send status update
+        String status = String.format(
+            "{\"status\":\"processing\",\"surgeryId\":\"%s\"}",
+            surgeryId
+        );
+        session.sendMessage(new TextMessage(status));
+    }
+    
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        System.out.println("Connection closed: " + status);
+        // Implement reconnection logic
+    }
+}
+```
+
+## High Availability
+
+### Multiple AI Instances
+
+The implementation supports multiple concurrent AI connections:
+
+```java
+private static final ConcurrentHashMap<String, WebSocketSession> aiSessions;
+```
+
+All connected AI clients receive the same notifications via broadcast:
+
+```java
+aiSessions.values().forEach(session -> {
+    session.sendMessage(new TextMessage(mensaje));
+});
+```
+
+### Reconnection Strategy
+
+Implement exponential backoff for reconnections:
+
+```javascript
+let reconnectDelay = 1000;
+const maxDelay = 60000;
+
+function reconnect() {
+  setTimeout(() => {
+    connectAI();
+    reconnectDelay = Math.min(reconnectDelay * 2, maxDelay);
+  }, reconnectDelay);
+}
+
+ws.on('close', () => {
+  console.log('Reconnecting...');
+  reconnect();
+});
+
+ws.on('open', () => {
+  reconnectDelay = 1000; // Reset on successful connection
+});
+```
+
+## Error Handling
+
+### Invalid Role
+
+If the JWT token doesn't contain `ROLE_AI`, the connection is immediately closed:
+
+```javascript
+ws.on('close', (event) => {
+  if (event.code === 1008) {
+    console.error('Invalid AI credentials - check JWT role claim');
+  }
+});
+```
+
+### Missing Token
+
+```python
+try:
+    ws = websocket.create_connection(url)
+except websocket.WebSocketBadStatusException as e:
+    if e.status_code == 401:
+        print("Authentication failed - token missing or invalid")
+```
+
+### Network Failures
+
+```javascript
+ws.on('error', (error) => {
+  console.error('Connection error:', error);
+  // Check network connectivity
+  // Retry with backoff
+});
+```
+
+## Monitoring
+
+The handler logs key events to console:
+
+- Connection established: `🤖 IA conectada: {sessionId}`
+- Notification sent: `🔔 Notificación enviada a IA: {surgeryId}`
+- Connection closed: `🤖 IA desconectada: {sessionId}`
+- Notification error: `❌ Error notificando a IA: {errorMessage}`
+
+## Integration Flow
+
+1. **Surgery Simulation**: Surgeon performs simulation via [Simulation WebSocket](/api/websocket/simulation)
+2. **Surgery Completion**: Surgeon sends `FINISH` event
+3. **Persistence**: `SimulationWebSocketHandler` saves surgery to database
+4. **Notification**: `AIWebSocketHandler.notificarNuevaCirugia()` broadcasts to AI clients
+5. **AI Processing**: AI service receives notification and fetches surgery data
+6. **Analysis**: AI analyzes movements and posts results via REST API
+
+## Related Endpoints
+
+- [Simulation WebSocket](/api/websocket/simulation) - Surgery telemetry streaming endpoint
+- [Get Surgery](/api/surgery/get-trajectory) - REST endpoint to fetch surgery details for analysis
+- [Authentication](/api/auth/login) - Obtain JWT token with AI role

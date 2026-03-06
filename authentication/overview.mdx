@@ -1,0 +1,129 @@
+---
+title: 'Authentication Overview'
+description: 'Learn how Justina Core Backend implements JWT-based authentication for surgeons and AI agents'
+---
+
+## Introduction
+
+Justina Core Backend uses **JWT (JSON Web Token)** authentication to secure the surgical simulation platform. The system supports two main roles: surgeons who perform simulations and AI agents that analyze surgical data.
+
+## Authentication Architecture
+
+The authentication system is built with Spring Security and consists of several key components:
+
+- **JwtService**: Generates and validates JWT tokens
+- **JwtAuthenticationFilter**: Intercepts requests and validates tokens
+- **SecurityConfig**: Configures security rules and endpoint permissions
+- **AuthController**: Handles login and registration endpoints
+
+## How It Works
+
+<Steps>
+  <Step title="User Registration">
+    New users register with a username and password. All registered users are automatically assigned the `ROLE_SURGEON` role.
+  </Step>
+  
+  <Step title="Login & Token Generation">
+    Users authenticate with their credentials. Upon successful login, the server generates a JWT token containing:
+    - User ID
+    - Username
+    - Role (ROLE_SURGEON or ROLE_AI)
+    - Expiration time (24 hours)
+  </Step>
+  
+  <Step title="Token Delivery">
+    The JWT token is delivered in two ways:
+    - As an **HTTP-only cookie** (`jwt-token`) for browser-based clients
+    - In the **response body** for programmatic access
+  </Step>
+  
+  <Step title="Authenticated Requests">
+    Clients include the JWT token in subsequent requests via:
+    - Cookie (automatically sent by browsers)
+    - Authorization header: `Bearer <token>`
+  </Step>
+  
+  <Step title="Token Validation">
+    The `JwtAuthenticationFilter` intercepts all requests, extracts the token, validates it, and sets the Spring Security context.
+  </Step>
+</Steps>
+
+## Token Expiration
+
+JWT tokens expire **24 hours** after issuance. After expiration, users must log in again to obtain a new token.
+
+```java
+// From JwtService.java:29
+.withExpiresAt(new Date(System.currentTimeMillis() + 86400000)) // 1 day
+```
+
+## Security Features
+
+### Stateless Authentication
+
+Justina uses **stateless session management** - no server-side sessions are maintained. All authentication state is contained within the JWT token.
+
+```java
+// From SecurityConfig.java:32
+.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+```
+
+### CSRF Protection
+
+CSRF (Cross-Site Request Forgery) protection is disabled because the API uses JWT tokens, which are inherently CSRF-resistant when properly implemented.
+
+### Password Encryption
+
+Passwords are encrypted using **BCrypt** before storage. The system never stores plain-text passwords.
+
+```java
+// From AuthService.java:58
+String encodedPassword = passwordEncoder.encode(password);
+```
+
+## Public vs Protected Endpoints
+
+### Public Endpoints (No Authentication Required)
+
+- `/api/v1/auth/login` - User login
+- `/api/v1/auth/register` - User registration
+- `/ws/simulation/**` - WebSocket simulation endpoints
+- `/ws/ai/**` - WebSocket AI endpoints
+- `/swagger-ui/**` - API documentation
+- `/v3/api-docs/**` - OpenAPI specification
+
+### Protected Endpoints (Authentication Required)
+
+All other endpoints require a valid JWT token. See [Roles & Permissions](/authentication/roles) for role-specific access rules.
+
+## CORS Configuration
+
+The backend allows cross-origin requests from:
+
+- `https://s02-equipo24-frontend.vercel.app` (Production)
+- `http://localhost:3000` (Development)
+- `http://localhost:5173` (Development)
+
+```java
+// From SecurityConfig.java:60-63
+.allowedOrigins(
+    "https://s02-equipo24-frontend.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5173"
+)
+```
+
+<Warning>
+  CORS is configured with `allowCredentials(true)`, which means cookies are included in cross-origin requests. Ensure your frontend properly handles credentials.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="JWT Token Details" icon="key" href="/authentication/jwt">
+    Learn about JWT token structure, claims, and validation
+  </Card>
+  <Card title="Roles & Permissions" icon="shield" href="/authentication/roles">
+    Understand user roles and endpoint authorization
+  </Card>
+</CardGroup>

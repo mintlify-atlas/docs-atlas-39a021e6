@@ -1,0 +1,579 @@
+---
+title: 'Backend Integration'
+description: 'WebSocket communication, REST endpoints, and data structures for AI-backend integration'
+---
+
+## Communication Protocols
+
+The AI engine communicates with the Spring Boot backend through two channels:
+
+1. **WebSocket**: Real-time notifications when surgeries are completed
+2. **REST API**: Data retrieval (GET trajectory) and submission (POST analysis)
+
+## WebSocket Integration
+
+### Backend: AIWebSocketHandler
+
+The backend maintains persistent WebSocket connections with AI clients.
+
+#### Connection Management
+
+```java AIWebSocketHandler.java
+@Component
+@RequiredArgsConstructor
+public class AIWebSocketHandler extends TextWebSocketHandler {
+    
+    // Concurrent map to store AI client sessions
+    private static final ConcurrentHashMap<String, WebSocketSession> aiSessions = 
+        new ConcurrentHashMap<>();
+    
+    @Override
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        // Verify AI role from JWT token
+        String role = (String) session.getAttributes().get("ROLE");
+        
+        if (role != null && role.equals("ROLE_AI")) {
+            aiSessions.put(session.getId(), session);
+            System.out.println("🤖 IA conectada: " + session.getId());
+            
+            // Send confirmation message
+            session.sendMessage(new TextMessage(
+                "{\"status\":\"connected\",\"message\":\"IA conectada exitosamente\"}"
+            ));
+        } else {
+            session.close(CloseStatus.POLICY_VIOLATION);
+        }
+    }
+}
+```
+
+#### Broadcasting Surgery Notifications
+
+When a surgery is finalized, the backend notifies all connected AI clients:
+
+```java AIWebSocketHandler.java
+public static void notificarNuevaCirugia(UUID surgeryId) {
+    aiSessions.values().forEach(session -> {
+        try {
+            String mensaje = String.format(
+                "{\"event\":\"NEW_SURGERY\",\"surgeryId\":\"%s\"}",
+                surgeryId
+            );
+            session.sendMessage(new TextMessage(mensaje));
+            System.out.println("🔔 Notificación enviada a IA: " + surgeryId);
+        } catch (Exception e) {
+            System.err.println("❌ Error notificando a IA: " + e.getMessage());
+        }
+    });
+}
+```
+
+**Usage**: Call this static method from any service when a surgery is completed:
+
+```java SurgeryService.java
+public void finalizeSurgery(UUID surgeryId) {
+    // ... finalization logic ...
+    
+    // Notify AI for analysis
+    AIWebSocketHandler.notificarNuevaCirugia(surgeryId);
+}
+```
+
+### Python: WebSocket Client
+
+The AI engine maintains a persistent WebSocket connection to receive notifications.
+
+#### Client Configuration
+
+```python websocket_client.py
+class AIWebSocketClient:
+    def __init__(self):
+        self.client = JustinaAIClient()  # REST client for API calls
+        self.ws = None
+        self.running = False
+        self.reconnect_delay = 5  # seconds
+        
+    def get_websocket_url(self):
+        """Convert HTTP URL to WebSocket URL and append token"""
+        ws_url = BASE_URL.replace("http://", "ws://").replace("https://", "wss://")
+        return f"{ws_url}/ws/ai?token={self.client.token}"
+```
+
+#### Message Handling
+
+```python websocket_client.py
+def on_message(self, ws, message):
+    """Callback when backend sends a message"""
+    try:
+        data = json.loads(message)
+        
+        # Check for NEW_SURGERY notification
+        if data.get("event") == "NEW_SURGERY":
+            surgery_id = data.get("surgeryId")
+            print(f"🔔 Nueva cirugía detectada: {surgery_id}")
+            
+            # Process in separate thread to avoid blocking WebSocket
+            thread = threading.Thread(
+                target=self.procesar_cirugia_async,
+                args=(surgery_id,)
+            )
+            thread.daemon = True
+            thread.start()
+            
+        elif data.get("status") == "connected":
+            print(f"✅ {data.get('message', 'Conectado al backend')}")
+            
+    except json.JSONDecodeError as e:
+        print(f"❌ Error parseando mensaje: {e}")
+```
+
+#### Connection Lifecycle
+
+```python websocket_client.py
+def on_open(self, ws):
+    print("🔌 WebSocket conectado exitosamente")
+    print("👂 Esperando notificaciones del backend...")
+
+def on_close(self, ws, close_status_code, close_msg):
+    print(f"🔌 WebSocket cerrado (código: {close_status_code})")
+    
+    # Auto-reconnect if still running
+    if self.running:
+        print(f"🔄 Reconectando en {self.reconnect_delay}s...")
+        time.sleep(self.reconnect_delay)
+        self.connect()
+
+def on_error(self, ws, error):
+    print(f"❌ Error WebSocket: {error}")
+```
+
+#### Async Surgery Processing
+
+```python websocket_client.py
+def procesar_cirugia_async(self, surgery_id):
+    """Process surgery in separate thread"""
+    try:
+        print(f"🏥 INICIANDO ANÁLISIS: {surgery_id}")
+        
+        # Step 1: Get trajectory
+        trajectory_data = self.client.get_trajectory(surgery_id)
+        if not trajectory_data:
+            return
+        
+        # Step 2: Analyze with pipeline
+        score, feedback = run_pipeline(trajectory_data)
+        print(f"✅ Análisis completado - Score: {score:.1f}/100")
+        
+        # Step 3: Send result
+        success = self.client.send_analysis(surgery_id, score, feedback)
+        
+        if success:
+            print(f"🎉 Cirugía {surgery_id} procesada exitosamente!")
+            
+    except Exception as e:
+        print(f"❌ Error procesando cirugía {surgery_id}: {e}")
+        traceback.print_exc()
+```
+
+## REST API Endpoints
+
+### GET /api/v1/surgeries/{id}/trajectory
+
+Retrieve complete trajectory data for a surgery session.
+
+#### Backend Controller
+
+```java SurgeryController.java
+@RestController
+@RequestMapping("/api/v1/surgeries")
+public class SurgeryController {
+    
+    private final SurgeryService surgeryService;
+    
+    @GetMapping("/{id}/trajectory")
+    @Operation(summary = "Obtener trayectoria para IA")
+    public ResponseEntity<TrajectoryDTO> getTrajectory(@PathVariable UUID id) {
+        // Extract user info from JWT token
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        UserEntity userDetails = (UserEntity) auth.getPrincipal();
+        UUID authenticatedId = userDetails.getId();
+        String role = userDetails.getRole();
+        
+        // Retrieve trajectory with authorization check
+        TrajectoryDTO trajectory = surgeryService.getSurgeryTrajectory(
+            id, authenticatedId, role
+        );
+        return ResponseEntity.ok(trajectory);
+    }
+}
+```
+
+#### Service Layer Authorization
+
+```java SurgeryService.java
+public TrajectoryDTO getSurgeryTrajectory(
+    UUID surgeryId, 
+    UUID authenticatedSurgeonId, 
+    String role
+) {
+    // Find surgery or throw 404
+    SurgerySession session = surgeryRepository.findById(surgeryId)
+        .orElseThrow(() -> new SurgeryNotFoundException(
+            "La cirugía con id " + surgeryId + " no existe."
+        ));
+    
+    // Authorization: Allow surgeon owner OR AI role
+    if (!session.getSurgeonId().equals(authenticatedSurgeonId) 
+        && !"ROLE_AI".equals(role)) {
+        throw new ForbiddenActionException(
+            "No tienes permiso para acceder a esta cirugía."
+        );
+    }
+    
+    // Map to DTO
+    return new TrajectoryDTO(
+        session.getId(),
+        session.getStartTime(),
+        session.getEndTime(),
+        session.getTrajectory(),
+        session.getScore(),
+        session.getFeedback()
+    );
+}
+```
+
+#### Response DTO
+
+```java TrajectoryDTO.java
+public record TrajectoryDTO(
+    UUID surgeryId,
+    LocalDateTime startTime,
+    LocalDateTime endTime,
+    List<Movement> movements,
+    Double score,        // May be null if not yet analyzed
+    String feedback      // May be null if not yet analyzed
+) {}
+```
+
+```java Movement.java
+public record Movement(
+    double[] coordinates,  // [x, y] or [x, y, z]
+    SurgeryEvent event,    // TUMOR_REMOVAL, HEMORRHAGE, etc.
+    long timestamp         // Unix timestamp in milliseconds
+) {}
+```
+
+```java SurgeryEvent.java
+public enum SurgeryEvent {
+    NONE,
+    TUMOR_TOUCH,
+    HEMORRHAGE,
+    START,
+    FINISH,
+    TUMOR_REMOVAL,
+    KIDNEY_TOUCH
+}
+```
+
+#### Python Client Request
+
+```python client.py
+class JustinaAIClient:
+    def get_trajectory(self, surgery_id):
+        if not self.ensure_authenticated():
+            return None
+        
+        url = f"{self.base_url}/api/v1/surgeries/{surgery_id}/trajectory"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                data = response.json()
+                print(f"✅ Trayectoria obtenida ({len(data['movements'])} movimientos)")
+                return data
+            elif response.status_code == 404:
+                print(f"❌ Cirugía {surgery_id} no encontrada")
+            else:
+                print(f"❌ Error: {response.status_code}")
+            return None
+        except Exception as e:
+            print(f"❌ Error de red: {e}")
+            return None
+```
+
+#### Example Response
+
+```json
+{
+  "surgeryId": "123e4567-e89b-12d3-a456-426614174000",
+  "startTime": "2024-03-15T10:30:00",
+  "endTime": "2024-03-15T10:45:30",
+  "movements": [
+    {
+      "coordinates": [150.5, 200.3, 50.0],
+      "event": "START",
+      "timestamp": 1710500400000
+    },
+    {
+      "coordinates": [151.2, 201.1, 50.5],
+      "event": "NONE",
+      "timestamp": 1710500400050
+    },
+    {
+      "coordinates": [155.0, 205.0, 52.0],
+      "event": "TUMOR_REMOVAL",
+      "timestamp": 1710500400100
+    }
+  ],
+  "score": null,
+  "feedback": null
+}
+```
+
+### POST /api/v1/surgeries/{id}/analysis
+
+Submit AI-generated analysis results for a surgery.
+
+#### Backend Controller
+
+```java SurgeryController.java
+@PostMapping("/{id}/analysis")
+@Operation(summary = "Recibir análisis de la IA")
+public ResponseEntity<Void> saveAnalysis(
+    @PathVariable UUID id,
+    @RequestBody @Valid AnalysisDTO analysis
+) {
+    surgeryService.saveAiAnalysis(id, analysis);
+    return ResponseEntity.noContent().build();  // 204 No Content
+}
+```
+
+#### Request DTO
+
+```java AnalysisDTO.java
+public record AnalysisDTO(
+    @Min(value = 0, message = "El score no puede ser menor a 0")
+    @Max(value = 100, message = "El score no puede ser mayor a 100")
+    double score,
+    
+    @NotBlank(message = "El feedback es obligatorio")
+    String feedback
+) {}
+```
+
+#### Service Layer
+
+```java SurgeryService.java
+public void saveAiAnalysis(UUID surgeryId, AnalysisDTO analysis) {
+    // Find surgery or throw 404
+    SurgerySession session = surgeryRepository.findById(surgeryId)
+        .orElseThrow(() -> new SurgeryNotFoundException(
+            "La cirugía con id " + surgeryId + " no existe."
+        ));
+    
+    // Update analysis fields
+    session.updateAnalysis(analysis.score(), analysis.feedback());
+    
+    // Persist changes
+    surgeryRepository.save(session);
+}
+```
+
+#### Python Client Request
+
+```python client.py
+def send_analysis(self, surgery_id, score, feedback):
+    if not self.ensure_authenticated():
+        return False
+    
+    url = f"{self.base_url}/api/v1/surgeries/{surgery_id}/analysis"
+    headers = {
+        "Authorization": f"Bearer {self.token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "score": float(score),
+        "feedback": feedback
+    }
+    
+    try:
+        response = requests.post(
+            url, 
+            json=payload, 
+            headers=headers, 
+            timeout=REQUEST_TIMEOUT
+        )
+        if response.status_code == 204:
+            print("✅ Análisis enviado correctamente")
+            return True
+        else:
+            print(f"❌ Error: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error de red: {e}")
+        return False
+```
+
+#### Example Request
+
+```json
+{
+  "score": 85.5,
+  "feedback": "✅ BUENO | Score: 85.5/100\n\nALERTAS CRÍTICAS\n· Hemorragias: 0 (Ninguna)\n· Lesión Tejido Sano: 1\n· Cuadrantes de Riesgo: Ninguno\n\nMÉTRICAS DE DESTREZA\n· Remoción Tumor: 92.0%\n· Economía: 1.32x (Ideal < 1.2x)\n· Fluidez (Jerk): 35.12\n· Precisión Path: 78.5%\n\nESTADÍSTICAS\n· Duración: 132.4s\n· Distancia: 1125.8u\n· Velocidad: 8.51u/s\n\nRECOMENDACIONES\n· Planificar trayectorias más directas para reducir fatiga.\n"
+}
+```
+
+## Security Configuration
+
+Endpoint access is restricted by role in the Spring Security configuration:
+
+```java SecurityConfig.java
+@Bean
+public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests(auth -> auth
+            // Trajectory access: Surgeons can view own, AI can view all
+            .requestMatchers(HttpMethod.GET, "/api/v1/surgeries/*/trajectory")
+                .hasAnyAuthority("ROLE_SURGEON", "ROLE_AI")
+            
+            // Analysis submission: AI only
+            .requestMatchers(HttpMethod.POST, "/api/v1/surgeries/*/analysis")
+                .hasAuthority("ROLE_AI")
+            
+            // WebSocket: AI only
+            .requestMatchers("/ws/ai")
+                .hasAuthority("ROLE_AI")
+        )
+        // ... JWT filter configuration ...
+}
+```
+
+## Deployment Considerations
+
+### Environment Variables
+
+The AI engine requires these environment variables:
+
+```bash
+BACKEND_URL=https://justina-backend.onrender.com
+IA_USERNAME=ia_justina
+IA_PASSWORD=ia_secret_2024
+PORT=8000  # For health check endpoint (required by Render free tier)
+```
+
+### Health Check Server
+
+The AI client includes a Flask health check server for deployment platforms:
+
+```python websocket_client.py
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Justina AI WebSocket Client is Alive!", 200
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host='0.0.0.0', port=port)
+
+# Start health server in background thread
+threading.Thread(target=run_health_server, daemon=True).start()
+```
+
+### Running the AI Client
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run WebSocket client (production)
+python websocket_client.py
+
+# Run CLI interface (manual testing)
+python main.py
+```
+
+## Error Handling
+
+### Backend Error Responses
+
+| Status Code | Scenario | Response |
+|-------------|----------|----------|
+| 200 OK | Trajectory retrieved successfully | TrajectoryDTO |
+| 204 No Content | Analysis saved successfully | Empty body |
+| 400 Bad Request | Invalid AnalysisDTO (validation error) | Error details |
+| 401 Unauthorized | Missing or invalid JWT token | Error message |
+| 403 Forbidden | Surgeon accessing another's surgery | Error message |
+| 404 Not Found | Surgery ID doesn't exist | Error message |
+
+### Python Client Retry Logic
+
+```python config.py
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
+RETRY_ATTEMPTS = int(os.getenv("RETRY_ATTEMPTS", "3"))
+```
+
+```python client.py
+def ensure_authenticated(self):
+    """Auto-refresh token if expired"""
+    if not self.token or time.time() > self.token_expiration:
+        return self.login()
+    return True
+```
+
+## Testing
+
+### Testing WebSocket Notifications
+
+You can manually trigger the notification method:
+
+```java
+AIWebSocketHandler.notificarNuevaCirugia(
+    UUID.fromString("123e4567-e89b-12d3-a456-426614174000")
+);
+```
+
+### Testing the Pipeline Locally
+
+```python test_pipeline_local.py
+from analysis_pipeline import run_pipeline
+
+# Mock trajectory data
+trajectory_data = {
+    "surgeryId": "test-123",
+    "movements": [
+        {"coordinates": [100, 100, 0], "event": "START", "timestamp": 1000},
+        {"coordinates": [150, 150, 10], "event": "TUMOR_TOUCH", "timestamp": 1050},
+        {"coordinates": [200, 200, 20], "event": "TUMOR_REMOVAL", "timestamp": 1100}
+    ]
+}
+
+score, feedback = run_pipeline(trajectory_data)
+print(f"Score: {score}")
+print(f"Feedback:\n{feedback}")
+```
+
+## Monitoring
+
+Both systems provide extensive logging:
+
+**Backend** (Java console):
+```
+🤖 IA conectada: session-abc123
+🔔 Notificación enviada a IA: 123e4567-e89b-12d3-a456-426614174000
+```
+
+**AI Client** (Python console):
+```
+🔌 WebSocket conectado exitosamente
+🔔 Nueva cirugía detectada: 123e4567-e89b-12d3-a456-426614174000
+🏥 INICIANDO ANÁLISIS: 123e4567-e89b-12d3-a456-426614174000
+✅ Trayectoria obtenida (458 movimientos)
+🧠 Analizando con pipeline de 5 pasos...
+✅ Análisis completado - Score: 85.5/100
+📤 Enviando análisis al backend...
+✅ Análisis enviado correctamente
+🎉 Cirugía 123e4567-e89b-12d3-a456-426614174000 procesada exitosamente!
+```

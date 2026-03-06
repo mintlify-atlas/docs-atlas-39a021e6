@@ -1,0 +1,314 @@
+---
+title: 'Save Surgery Analysis'
+api: 'POST /api/v1/surgeries/{id}/analysis'
+description: 'Submit AI-generated analysis results for a completed surgery'
+---
+
+## Overview
+
+Allows the AI service to submit analysis results after processing surgical trajectory data. This endpoint updates the surgery record with a performance score (0-100) and textual feedback.
+
+## Authorization
+
+This endpoint requires authentication with JWT token. It is intended exclusively for the AI service with **ROLE_AI** role.
+
+While the controller does not enforce explicit role checking at the endpoint level, this endpoint should only be called by authenticated AI services in production environments.
+
+## Path Parameters
+
+<ParamField path="id" type="UUID" required>
+  The unique identifier of the surgery session to update with analysis results
+  
+  Example: `550e8400-e29b-41d4-a716-446655440000`
+</ParamField>
+
+## Request Body
+
+<ParamField body="score" type="number" required>
+  Performance score calculated by the AI analysis
+  
+  **Constraints:**
+  - Minimum: 0
+  - Maximum: 100
+  - Validation error if outside this range
+  
+  Example: `87.5`
+</ParamField>
+
+<ParamField body="feedback" type="string" required>
+  Detailed textual feedback and recommendations from the AI analysis
+  
+  **Constraints:**
+  - Cannot be blank or empty
+  - Should provide actionable insights for the surgeon
+  
+  Example: `"Excellent precision in tumor removal. Consider reducing kidney contact events."`
+</ParamField>
+
+## Validation Rules
+
+The request body is validated using Jakarta Bean Validation:
+
+- **score**: Must be between 0 and 100 (inclusive)
+- **feedback**: Cannot be blank or null
+
+Source: `AnalysisDTO.java:8-13`
+
+## Response
+
+<ResponseField name="204 No Content">
+  Analysis successfully saved. No response body is returned.
+</ResponseField>
+
+## Error Responses
+
+<ResponseField name="400 Bad Request">
+  Returned when validation fails on the request body.
+  
+  Common validation errors:
+  
+  ```json
+  {
+    "errors": {
+      "score": "El score no puede ser menor a 0",
+      "feedback": "El feedback es obligatorio"
+    }
+  }
+  ```
+  
+  Or if score exceeds maximum:
+  
+  ```json
+  {
+    "errors": {
+      "score": "El score no puede ser mayor a 100"
+    }
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="404 Not Found">
+  Returned when the specified surgery ID does not exist.
+  
+  ```json
+  {
+    "error": "La cirugía con id 550e8400-e29b-41d4-a716-446655440000 no existe."
+  }
+  ```
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```bash curl
+curl -X POST \
+  'https://api.justina.com/api/v1/surgeries/550e8400-e29b-41d4-a716-446655440000/analysis' \
+  -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "score": 87.5,
+    "feedback": "Excellent precision in tumor removal with minimal tissue damage. Total surgery time was efficient. Minor improvement: 2 kidney contact events were detected - consider adjusting approach angle to avoid healthy tissue."
+  }'
+```
+
+```python Python
+import requests
+
+surgery_id = "550e8400-e29b-41d4-a716-446655440000"
+url = f"https://api.justina.com/api/v1/surgeries/{surgery_id}/analysis"
+
+headers = {
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "Content-Type": "application/json"
+}
+
+analysis = {
+    "score": 87.5,
+    "feedback": (
+        "Excellent precision in tumor removal with minimal tissue damage. "
+        "Total surgery time was efficient. Minor improvement: 2 kidney contact "
+        "events were detected - consider adjusting approach angle to avoid healthy tissue."
+    )
+}
+
+response = requests.post(url, json=analysis, headers=headers)
+
+if response.status_code == 204:
+    print("Analysis successfully saved")
+else:
+    print(f"Error: {response.status_code}")
+```
+
+```javascript JavaScript
+const surgeryId = '550e8400-e29b-41d4-a716-446655440000';
+const url = `https://api.justina.com/api/v1/surgeries/${surgeryId}/analysis`;
+
+const analysis = {
+  score: 87.5,
+  feedback: (
+    'Excellent precision in tumor removal with minimal tissue damage. ' +
+    'Total surgery time was efficient. Minor improvement: 2 kidney contact ' +
+    'events were detected - consider adjusting approach angle to avoid healthy tissue.'
+  )
+};
+
+const response = await fetch(url, {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(analysis)
+});
+
+if (response.status === 204) {
+  console.log('Analysis successfully saved');
+} else {
+  console.error(`Error: ${response.status}`);
+}
+```
+
+```java Java
+import java.net.http.*;
+import java.net.URI;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import project.Justina.domain.dto.AnalysisDTO;
+
+String surgeryId = "550e8400-e29b-41d4-a716-446655440000";
+String url = "https://api.justina.com/api/v1/surgeries/" + surgeryId + "/analysis";
+
+AnalysisDTO analysis = new AnalysisDTO(
+    87.5,
+    "Excellent precision in tumor removal with minimal tissue damage. " +
+    "Total surgery time was efficient. Minor improvement: 2 kidney contact " +
+    "events were detected - consider adjusting approach angle to avoid healthy tissue."
+);
+
+ObjectMapper mapper = new ObjectMapper();
+String requestBody = mapper.writeValueAsString(analysis);
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create(url))
+    .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+    .header("Content-Type", "application/json")
+    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+    .build();
+
+HttpResponse<Void> response = HttpClient.newHttpClient()
+    .send(request, HttpResponse.BodyHandlers.discarding());
+
+if (response.statusCode() == 204) {
+    System.out.println("Analysis successfully saved");
+} else {
+    System.err.println("Error: " + response.statusCode());
+}
+```
+
+</CodeGroup>
+
+## Request Example
+
+```json
+{
+  "score": 87.5,
+  "feedback": "Excellent precision in tumor removal with minimal tissue damage. Total surgery time was efficient. Minor improvement: 2 kidney contact events were detected - consider adjusting approach angle to avoid healthy tissue."
+}
+```
+
+## Service Implementation
+
+The service layer handles the analysis update process:
+
+```java
+public void saveAiAnalysis(UUID surgeryId, AnalysisDTO analysis) {
+    // Find surgery or throw 404
+    SurgerySession session = surgeryRepository.findById(surgeryId)
+        .orElseThrow(() -> new SurgeryNotFoundException(
+            "La cirugía con id " + surgeryId + " no existe."
+        ));
+    
+    // Update analysis data
+    session.updateAnalysis(analysis.score(), analysis.feedback());
+    
+    // Persist changes
+    surgeryRepository.save(session);
+}
+```
+
+Source: `SurgeryService.java:41-51`
+
+## AI Analysis Workflow
+
+### Complete Analysis Pipeline
+
+1. **Surgery Completion**
+   - Surgeon completes surgery session
+   - WebSocket connection closes
+   - Surgery status set to "COMPLETED"
+
+2. **Trigger AI Analysis**
+   - Event triggers AI service to process the surgery
+   - AI service retrieves trajectory via [Get Trajectory](/api/surgery/get-trajectory)
+
+3. **Process Trajectory**
+   - AI analyzes movement patterns
+   - Detects critical events (hemorrhage, tissue contact)
+   - Calculates efficiency metrics
+   - Generates performance score
+
+4. **Submit Analysis**
+   - AI service calls this endpoint with score and feedback
+   - Analysis is persisted to surgery record
+
+5. **Surgeon Notification**
+   - Frontend displays updated score and feedback
+   - Surgeon can review detailed analysis
+
+### Example AI Processing Logic
+
+```python
+def analyze_surgery(surgery_id: str):
+    # Step 1: Fetch trajectory
+    trajectory = get_surgery_trajectory(surgery_id)
+    
+    # Step 2: Calculate metrics
+    metrics = {
+        'precision_score': calculate_precision(trajectory['movements']),
+        'efficiency_score': calculate_efficiency(trajectory),
+        'safety_score': calculate_safety(trajectory['movements'])
+    }
+    
+    # Step 3: Generate overall score
+    overall_score = (
+        metrics['precision_score'] * 0.4 +
+        metrics['efficiency_score'] * 0.3 +
+        metrics['safety_score'] * 0.3
+    )
+    
+    # Step 4: Generate feedback
+    feedback = generate_feedback(metrics, trajectory)
+    
+    # Step 5: Submit analysis
+    save_analysis(surgery_id, overall_score, feedback)
+```
+
+## Score Calculation Guidelines
+
+### Recommended Scoring Factors
+
+- **Precision (40%)**: Accuracy in tumor targeting and removal
+- **Efficiency (30%)**: Time taken, path optimization, unnecessary movements
+- **Safety (30%)**: Avoiding healthy tissue, hemorrhage prevention
+
+### Score Ranges
+
+- **90-100**: Exceptional performance, minimal room for improvement
+- **80-89**: Very good performance with minor areas to refine
+- **70-79**: Good performance with some notable areas for improvement
+- **60-69**: Adequate performance with significant improvement needed
+- **Below 60**: Performance requires substantial training and review
+
+## Related Endpoints
+
+- [Get Trajectory](/api/surgery/get-trajectory) - Retrieve trajectory data for analysis

@@ -1,0 +1,449 @@
+---
+title: 'Simulation WebSocket'
+description: 'Real-time telemetry streaming for surgical simulation sessions'
+---
+
+## Overview
+
+The Simulation WebSocket endpoint (`/ws/simulation`) receives real-time telemetry data from surgical simulation clients. It validates incoming data, tracks active surgery sessions, and persists completed sessions to the database.
+
+## Connection URL
+
+```
+ws://localhost:8080/ws/simulation?token=<JWT_TOKEN>
+```
+
+**Authentication:** Required (JWT token)  
+**Protocol:** WebSocket (Text frames)  
+**Handler:** `SimulationWebSocketHandler`
+
+## Telemetry Data Format
+
+### TelemetryDTO Structure
+
+All telemetry messages must conform to the `TelemetryDTO` structure:
+
+```java
+public record TelemetryDTO(
+    @NotNull(message = "Las coordenadas son obligatorias")
+    @NotEmpty(message = "Debe haber al menos una coordenada")
+    @Size(min = 2, max = 3, message = "Coordinates debe tener 2 o 3 valores")
+    double[] coordinates,
+
+    @NotNull(message = "El evento es obligatorio")
+    SurgeryEvent event,
+
+    @Positive(message = "El timestamp debe ser positivo")
+    long timestamp
+) {}
+```
+
+**Source:** `backend/src/main/java/project/Justina/domain/dto/TelemetryDTO.java:9-21`
+
+### JSON Message Format
+
+```json
+{
+  "coordinates": [10.5, 20.3, 15.7],
+  "event": "TUMOR_TOUCH",
+  "timestamp": 1678234567890
+}
+```
+
+### Field Specifications
+
+#### coordinates
+
+- **Type:** `double[]`
+- **Required:** Yes
+- **Validation:** 
+  - Must not be null
+  - Must not be empty
+  - Must contain 2 or 3 values (2D or 3D coordinates)
+- **Example:** `[12.5, 45.8]` or `[12.5, 45.8, 30.2]`
+
+#### event
+
+- **Type:** `SurgeryEvent` (enum)
+- **Required:** Yes
+- **Validation:** Must not be null
+- **Allowed Values:**
+
+| Event | Description |
+|-------|-------------|
+| `START` | Surgery session begins |
+| `NONE` | Regular movement with no special event |
+| `TUMOR_TOUCH` | Surgical tool touched tumor tissue |
+| `TUMOR_REMOVAL` | Tumor successfully removed |
+| `HEMORRHAGE` | Bleeding event occurred |
+| `KIDNEY_TOUCH` | Tool touched kidney (unintended) |
+| `FINISH` | Surgery session ends |
+
+**Source:** `backend/src/main/java/project/Justina/domain/model/SurgeryEvent.java:3-11`
+
+#### timestamp
+
+- **Type:** `long`
+- **Required:** Yes
+- **Validation:** Must be positive
+- **Format:** Unix timestamp in milliseconds
+- **Example:** `1678234567890`
+
+## Message Flow
+
+The `SimulationWebSocketHandler` processes incoming telemetry through the following pipeline:
+
+### 1. JSON Deserialization
+
+```java
+TelemetryDTO dto = objectMapper.readValue(message.getPayload(), TelemetryDTO.class);
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:38`
+
+### 2. Validation
+
+Jakarta Bean Validation is applied to ensure data integrity:
+
+```java
+Set<ConstraintViolation<TelemetryDTO>> violations = validator.validate(dto);
+
+if (!violations.isEmpty()) {
+    session.close(CloseStatus.BAD_DATA);
+    return;
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:40-45`
+
+**Invalid data results in connection closure with `CloseStatus.BAD_DATA` (1003).**
+
+### 3. DTO to Domain Mapping
+
+The validated DTO is manually mapped to a domain `Movement` object:
+
+```java
+Movement movement = new Movement(
+    dto.coordinates(),
+    dto.event(),
+    dto.timestamp()
+);
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:49-53`
+
+### 4. Authentication Verification
+
+The handler verifies that the surgeon ID was set during handshake:
+
+```java
+UUID surgeonId = (UUID) session.getAttributes().get("SURGEON_ID");
+
+if (surgeonId == null) {
+    session.close(CloseStatus.POLICY_VIOLATION);
+    return;
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:56-62`
+
+### 5. Session Management
+
+Active surgery sessions are tracked in-memory using a concurrent map:
+
+```java
+private final Map<String, SurgerySession> activeSessions = new ConcurrentHashMap<>();
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:32`
+
+Sessions are created lazily on first message:
+
+```java
+SurgerySession surgery = activeSessions.computeIfAbsent(session.getId(), k -> {
+    return new SurgerySession(surgeonId);
+});
+
+surgery.addMovement(movement);
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:65-70`
+
+### 6. Session Persistence
+
+When the `FINISH` event is received:
+
+```java
+if (movement.event() == SurgeryEvent.FINISH) {
+    surgery.endSurgery();
+    surgeryRepository.save(surgery);
+    activeSessions.remove(session.getId());
+
+    String response = String.format(
+        "{\"status\":\"SAVED\", \"surgeryId\":\"%s\"}",
+        surgery.getId()
+    );
+    session.sendMessage(new TextMessage(response));
+    AIWebSocketHandler.notificarNuevaCirugia(surgery.getId());
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/infrastructure/websocket/SimulationWebSocketHandler.java:74-82`
+
+**Actions on FINISH:**
+1. Session end time and duration are calculated
+2. Full trajectory is saved to the database
+3. Session is removed from active memory
+4. Success response is sent to client
+5. AI WebSocket is notified of new surgery
+
+## Client Implementation
+
+### JavaScript Example
+
+```javascript
+class SimulationClient {
+    constructor(token) {
+        this.ws = new WebSocket(`ws://localhost:8080/ws/simulation?token=${token}`);
+        this.setupHandlers();
+    }
+
+    setupHandlers() {
+        this.ws.onopen = () => {
+            console.log('Connected to simulation');
+            this.sendTelemetry('START', [0, 0, 0]);
+        };
+
+        this.ws.onmessage = (event) => {
+            const response = JSON.parse(event.data);
+            if (response.status === 'SAVED') {
+                console.log(`Surgery saved with ID: ${response.surgeryId}`);
+            }
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        this.ws.onclose = (event) => {
+            if (event.code === 1003) {
+                console.error('Invalid data format');
+            } else if (event.code === 1008) {
+                console.error('Authentication failed');
+            }
+        };
+    }
+
+    sendTelemetry(event, coordinates) {
+        const telemetry = {
+            coordinates: coordinates,
+            event: event,
+            timestamp: Date.now()
+        };
+        this.ws.send(JSON.stringify(telemetry));
+    }
+
+    finishSurgery() {
+        this.sendTelemetry('FINISH', [0, 0, 0]);
+    }
+}
+
+// Usage
+const token = 'your_jwt_token';
+const client = new SimulationClient(token);
+
+// Send movements
+setInterval(() => {
+    const x = Math.random() * 100;
+    const y = Math.random() * 100;
+    const z = Math.random() * 100;
+    client.sendTelemetry('NONE', [x, y, z]);
+}, 100); // 10 Hz telemetry rate
+
+// Finish after 30 seconds
+setTimeout(() => {
+    client.finishSurgery();
+}, 30000);
+```
+
+### Python Example
+
+```python
+import websocket
+import json
+import time
+import threading
+
+class SimulationClient:
+    def __init__(self, token):
+        self.url = f"ws://localhost:8080/ws/simulation?token={token}"
+        self.ws = websocket.WebSocketApp(
+            self.url,
+            on_open=self.on_open,
+            on_message=self.on_message,
+            on_error=self.on_error,
+            on_close=self.on_close
+        )
+
+    def on_open(self, ws):
+        print("Connected to simulation")
+        self.send_telemetry("START", [0, 0, 0])
+
+    def on_message(self, ws, message):
+        response = json.loads(message)
+        if response.get('status') == 'SAVED':
+            print(f"Surgery saved with ID: {response['surgeryId']}")
+
+    def on_error(self, ws, error):
+        print(f"WebSocket error: {error}")
+
+    def on_close(self, ws, close_status_code, close_msg):
+        if close_status_code == 1003:
+            print("Connection closed: Invalid data format")
+        elif close_status_code == 1008:
+            print("Connection closed: Authentication failed")
+
+    def send_telemetry(self, event, coordinates):
+        telemetry = {
+            "coordinates": coordinates,
+            "event": event,
+            "timestamp": int(time.time() * 1000)
+        }
+        self.ws.send(json.dumps(telemetry))
+
+    def run(self):
+        self.ws.run_forever()
+
+# Usage
+token = "your_jwt_token"
+client = SimulationClient(token)
+
+# Run in background thread
+thread = threading.Thread(target=client.run)
+thread.daemon = True
+thread.start()
+
+# Send telemetry
+for i in range(100):
+    client.send_telemetry("NONE", [i * 1.0, i * 2.0, i * 0.5])
+    time.sleep(0.1)
+
+client.send_telemetry("FINISH", [0, 0, 0])
+time.sleep(2)
+```
+
+## Server Responses
+
+### Success Response (on FINISH)
+
+```json
+{
+  "status": "SAVED",
+  "surgeryId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+Returned when surgery session is successfully persisted.
+
+### Error Handling
+
+The server closes the connection with specific status codes:
+
+| Close Code | Status | Trigger |
+|------------|--------|----------|
+| 1003 | `BAD_DATA` | Validation failure (invalid coordinates, missing fields, etc.) |
+| 1008 | `POLICY_VIOLATION` | Missing surgeon ID in session attributes |
+
+## Data Model
+
+### Movement Record
+
+```java
+public record Movement (
+    double[] coordinates,
+    SurgeryEvent event,
+    long timestamp
+) {}
+```
+
+**Source:** `backend/src/main/java/project/Justina/domain/model/Movement.java:3-7`
+
+### SurgerySession
+
+Each WebSocket connection creates a `SurgerySession` that accumulates movements:
+
+```java
+public class SurgerySession {
+    private UUID id;
+    private UUID surgeonId;
+    private List<Movement> trajectory;
+    private LocalDateTime startTime;
+    private LocalDateTime endTime;
+    private Long durationInSeconds;
+    private Double score;
+    private String feedback;
+    
+    // Constructor creates session with auto-generated ID
+    public SurgerySession(UUID surgeonId) {
+        this.id = UUID.randomUUID();
+        this.surgeonId = surgeonId;
+        this.trajectory = new ArrayList<>();
+        this.startTime = LocalDateTime.now();
+    }
+    
+    public void addMovement(Movement movement) {
+        this.trajectory.add(movement);
+    }
+    
+    public void endSurgery() {
+        this.endTime = LocalDateTime.now();
+        this.durationInSeconds = Duration.between(startTime, endTime).getSeconds();
+    }
+}
+```
+
+**Source:** `backend/src/main/java/project/Justina/domain/model/SurgerySession.java:8-53`
+
+## Best Practices
+
+### Telemetry Rate
+
+Recommended telemetry rates based on simulation type:
+
+- **VR Simulations:** 10-20 Hz (every 50-100ms)
+- **Desktop Simulations:** 5-10 Hz (every 100-200ms)
+- **Mobile Simulations:** 5 Hz (every 200ms)
+
+### Event Ordering
+
+1. Send `START` event when simulation begins
+2. Send `NONE` events for regular movements
+3. Send specific events (`TUMOR_TOUCH`, `HEMORRHAGE`, etc.) when they occur
+4. Always end with `FINISH` event to persist the session
+
+### Error Recovery
+
+```javascript
+ws.onclose = (event) => {
+    if (event.code === 1003) {
+        // Validation error - check data format
+        console.error('Invalid telemetry format');
+    } else if (event.code === 1008) {
+        // Auth error - refresh token and reconnect
+        refreshToken().then(newToken => {
+            reconnect(newToken);
+        });
+    }
+};
+```
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="WebSocket Overview" icon="network-wired" href="/websocket/overview">
+    Learn about authentication and connection setup
+  </Card>
+  <Card title="AI Notifications" icon="bell" href="/websocket/ai-notifications">
+    Understand how AI services are notified
+  </Card>
+</CardGroup>

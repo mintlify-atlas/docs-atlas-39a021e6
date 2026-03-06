@@ -1,0 +1,200 @@
+---
+title: "AnalysisDTO"
+description: "AI-generated surgical performance analysis model"
+---
+
+## Overview
+
+`AnalysisDTO` encapsulates AI-generated analysis results for completed surgical sessions. It contains a numerical performance score and textual feedback with recommendations for improvement.
+
+## Model Structure
+
+<ResponseField name="score" type="double" required>
+  Numerical performance score for the surgical session.
+  
+  **Validation Rules:**
+  - `@Min(value = 0)`: Score cannot be less than 0
+  - `@Max(value = 100)`: Score cannot be greater than 100
+  
+  **Range**: 0.0 to 100.0
+  
+  **Interpretation**:
+  - 90-100: Excellent performance
+  - 75-89: Good performance
+  - 60-74: Satisfactory performance
+  - Below 60: Needs improvement
+</ResponseField>
+
+<ResponseField name="feedback" type="String" required>
+  Detailed textual feedback and recommendations from the AI analysis system.
+  
+  **Validation Rules:**
+  - `@NotBlank`: Feedback text is mandatory and cannot be empty or whitespace-only
+  
+  **Content typically includes**:
+  - Assessment of instrument control and precision
+  - Evaluation of surgical technique
+  - Identification of critical events (hemorrhages, tissue contact)
+  - Specific recommendations for improvement
+  - Time efficiency analysis
+</ResponseField>
+
+## JSON Examples
+
+### Excellent Performance
+
+```json
+{
+  "score": 92.5,
+  "feedback": "Exceptional performance with precise tumor localization and removal. Excellent hand-eye coordination demonstrated throughout the procedure. Minimal unnecessary movements. Recommend maintaining current technique."
+}
+```
+
+### Good Performance with Recommendations
+
+```json
+{
+  "score": 78.0,
+  "feedback": "Good overall technique with successful tumor removal. Minor kidney contact detected at timestamp 1709740215000. Consider improving approach angle by 15 degrees to minimize contact with surrounding tissues. Procedure duration was within acceptable range."
+}
+```
+
+### Performance Needing Improvement
+
+```json
+{
+  "score": 58.5,
+  "feedback": "Multiple hemorrhage events detected. Excessive instrument movements indicate reduced precision. Recommend additional training on approach trajectory and instrument control. Total procedure time exceeded benchmark by 35%. Focus on smooth, controlled movements."
+}
+```
+
+### Detailed Analysis with Metrics
+
+```json
+{
+  "score": 85.0,
+  "feedback": "Strong performance with room for optimization. Tumor removal completed efficiently with good precision. One hemorrhage event at 14:45:32 suggests slight over-penetration. Recommend reducing insertion depth by 2-3mm in similar cases. Overall trajectory smoothness: 88%. Hand tremor: minimal. Procedure completion time: 48 minutes (benchmark: 45-50 minutes)."
+}
+```
+
+## Validation Error Messages
+
+The DTO includes Spanish-language validation messages:
+
+| Validation Rule | Error Message |
+|----------------|---------------|
+| Score below minimum | "El score no puede ser menor a 0" |
+| Score above maximum | "El score no puede ser mayor a 100" |
+| Blank feedback | "El feedback es obligatorio" |
+
+## Usage Context
+
+### REST API Endpoint
+
+**Request AI Analysis**
+```
+POST /api/surgeries/{surgeryId}/analyze
+Request Body: AnalysisDTO
+Response: TrajectoryDTO (with score and feedback populated)
+```
+
+### WebSocket Communication
+
+Analysis results may be pushed to subscribed clients:
+
+**Subscribe Topic**: `/topic/analysis/{surgeryId}`
+
+**Message Format**:
+```json
+{
+  "type": "ANALYSIS_COMPLETE",
+  "data": {
+    "score": 87.5,
+    "feedback": "Analysis feedback text..."
+  }
+}
+```
+
+### Processing Flow
+
+1. Surgery session completes (FINISH event received)
+2. Complete trajectory data sent to AI analysis service
+3. AI service generates score and feedback
+4. AnalysisDTO created with results
+5. Results validated against constraints
+6. Surgery session updated with analysis data
+7. Results made available via API and WebSocket
+
+## AI Analysis Integration
+
+### OpenAI Integration
+
+The backend integrates with OpenAI's API for trajectory analysis:
+
+- **Model**: GPT-4 or equivalent
+- **Input**: Complete trajectory data (movements, events, timing)
+- **Output**: Structured AnalysisDTO with score and feedback
+
+### Analysis Criteria
+
+The AI evaluation considers:
+
+- **Precision**: Accuracy of instrument positioning
+- **Efficiency**: Path optimization and unnecessary movements
+- **Safety**: Avoidance of critical events (hemorrhage, organ damage)
+- **Technique**: Smoothness of movements, proper approach angles
+- **Timing**: Duration compared to benchmarks
+- **Event Handling**: Response to complications
+
+## Error Handling
+
+### Invalid Score Range
+
+```json
+{
+  "status": 400,
+  "error": "Bad Request",
+  "message": "El score no puede ser mayor a 100",
+  "path": "/api/surgeries/550e8400-e29b-41d4-a716-446655440000/analyze"
+}
+```
+
+### Missing Feedback
+
+```json
+{
+  "status": 400,
+  "error": "Bad Request",
+  "message": "El feedback es obligatorio",
+  "path": "/api/surgeries/550e8400-e29b-41d4-a716-446655440000/analyze"
+}
+```
+
+## Integration with Other Models
+
+AnalysisDTO data is incorporated into the surgery session:
+
+```java
+// Update surgery session with analysis
+surgerySession.updateAnalysis(analysisDTO.score(), analysisDTO.feedback());
+
+// Convert to TrajectoryDTO for response
+TrajectoryDTO response = new TrajectoryDTO(
+    surgerySession.getId(),
+    surgerySession.getStartTime(),
+    surgerySession.getEndTime(),
+    surgerySession.getTrajectory(),
+    surgerySession.getScore(),  // from AnalysisDTO
+    surgerySession.getFeedback() // from AnalysisDTO
+);
+```
+
+## Related Models
+
+- [TrajectoryDTO](/api/models/trajectory) - Contains analysis results in response
+- [TelemetryDTO](/api/models/telemetry) - Raw data used for analysis
+- [SurgeryEvent](/api/models/surgery-events) - Events considered in analysis
+
+## Source Location
+
+`backend/src/main/java/project/Justina/domain/dto/AnalysisDTO.java`

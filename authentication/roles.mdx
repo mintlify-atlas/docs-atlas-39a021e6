@@ -1,0 +1,329 @@
+---
+title: 'Roles & Permissions'
+description: 'Understand user roles and endpoint authorization in Justina Core Backend'
+---
+
+## Overview
+
+Justina Core Backend implements a role-based access control (RBAC) system with two distinct roles:
+
+- **ROLE_SURGEON**: Human surgeons who perform simulations
+- **ROLE_AI**: AI agents that analyze surgical performance
+
+Each role has specific permissions that control access to different API endpoints.
+
+## User Roles
+
+### ROLE_SURGEON
+
+The surgeon role is assigned to all human users who register through the standard registration endpoint.
+
+```java
+// From AuthService.java:61
+User newUser = new User(UUID.randomUUID(), username, encodedPassword, "ROLE_SURGEON");
+```
+
+**Permissions:**
+- Start and manage surgical simulations
+- Send telemetry data during simulations
+- View their own simulation trajectory data
+- Access general surgery endpoints
+- Register and authenticate
+
+**Registration:**
+
+All users who register via `/api/v1/auth/register` automatically receive the `ROLE_SURGEON` role:
+
+```bash
+curl -X POST https://api.justina.com/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "surgeon_master",
+    "password": "justina2024"
+  }'
+```
+
+### ROLE_AI
+
+The AI role is assigned to AI agents that analyze surgical data and provide feedback.
+
+```java
+// From AuthService.java:68-78
+public void registerSystemUser(String username, String password, String role) {
+    if (userRepository.findByUsername(username).isPresent()) {
+        return;
+    }
+
+    String encodedPassword = passwordEncoder.encode(password);
+    User newUser = new User(UUID.randomUUID(), username, encodedPassword, role);
+    userRepository.save(newUser);
+}
+```
+
+**Permissions:**
+- Post analysis results to surgeries
+- Read trajectory data for analysis purposes
+- Access AI-specific WebSocket endpoints
+
+**Registration:**
+
+AI users must be created programmatically using the `registerSystemUser` method with `role = "ROLE_AI"`. This endpoint is not exposed publicly and is only used for system initialization.
+
+<Warning>
+  The `ROLE_AI` role cannot be obtained through the public registration endpoint. It must be created internally by the system.
+</Warning>
+
+## Authorization Rules
+
+The `SecurityConfig` class defines fine-grained authorization rules for different endpoints:
+
+### Public Endpoints (No Authentication)
+
+These endpoints are accessible without authentication:
+
+```java
+// From SecurityConfig.java:34-36
+.requestMatchers("/api/v1/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+.requestMatchers("/ws/simulation/**").permitAll()
+.requestMatchers("/ws/ai/**").permitAll()
+```
+
+| Endpoint Pattern | Description |
+|------------------|-------------|
+| `/api/v1/auth/**` | Authentication endpoints (login, register) |
+| `/swagger-ui/**` | Swagger UI documentation |
+| `/v3/api-docs/**` | OpenAPI specification |
+| `/ws/simulation/**` | WebSocket simulation endpoints |
+| `/ws/ai/**` | WebSocket AI endpoints |
+
+### AI-Only Endpoints
+
+Only users with `ROLE_AI` can access these endpoints:
+
+```java
+// From SecurityConfig.java:39
+.requestMatchers(HttpMethod.POST, "/api/v1/surgeries/*/analysis").hasAuthority("ROLE_AI")
+```
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/v1/surgeries/{id}/analysis` | `ROLE_AI` | Submit AI analysis results |
+
+**Example:**
+
+```bash
+curl -X POST https://api.justina.com/api/v1/surgeries/abc123/analysis \
+  -H "Authorization: Bearer <AI_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accuracy": 92.5,
+    "tremor": 3.2,
+    "recommendations": ["Improve precision in final steps"]
+  }'
+```
+
+<Warning>
+  If a surgeon attempts to access this endpoint, they will receive a 403 Forbidden error.
+</Warning>
+
+### Surgeon or AI Endpoints
+
+Both surgeons and AI agents can access these endpoints:
+
+```java
+// From SecurityConfig.java:43
+.requestMatchers(HttpMethod.GET, "/api/v1/surgeries/*/trajectory").hasAnyAuthority("ROLE_SURGEON", "ROLE_AI")
+```
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| `GET` | `/api/v1/surgeries/{id}/trajectory` | `ROLE_SURGEON`, `ROLE_AI` | Retrieve simulation trajectory data |
+
+**Example:**
+
+```bash
+curl -X GET https://api.justina.com/api/v1/surgeries/abc123/trajectory \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+### Surgeon-Only Endpoints
+
+All other surgery-related endpoints require `ROLE_SURGEON`:
+
+```java
+// From SecurityConfig.java:46
+.requestMatchers("/api/v1/surgeries/**").hasAuthority("ROLE_SURGEON")
+```
+
+| Endpoint Pattern | Role | Description |
+|------------------|------|-------------|
+| `/api/v1/surgeries/**` | `ROLE_SURGEON` | All surgery operations (create, update, delete) |
+
+**Examples:**
+
+```bash
+# Start a new simulation
+curl -X POST https://api.justina.com/api/v1/surgeries \
+  -H "Authorization: Bearer <SURGEON_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "surgeonId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "surgeryType": "laparoscopy"
+  }'
+
+# Get surgeon's simulations
+curl -X GET https://api.justina.com/api/v1/surgeries \
+  -H "Authorization: Bearer <SURGEON_TOKEN>"
+```
+
+### Protected Endpoints
+
+All other endpoints require authentication (any valid role):
+
+```java
+// From SecurityConfig.java:48
+.anyRequest().authenticated()
+```
+
+## Role Extraction from JWT
+
+The user's role is embedded in the JWT token and extracted during authentication:
+
+```java
+// From JwtService.java:61-68
+public String extractRole(String token) { 
+    return JWT.require(Algorithm.HMAC256(secretKey))
+            .withIssuer(issuer)
+            .build()
+            .verify(token)
+            .getClaim("role")
+            .asString();
+}
+```
+
+## Authorization Flow
+
+<Steps>
+  <Step title="Token Validation">
+    The `JwtAuthenticationFilter` validates the JWT token and extracts user details.
+  </Step>
+  
+  <Step title="Load User Authorities">
+    The user's role (e.g., `ROLE_SURGEON`) is loaded as a Spring Security authority.
+  </Step>
+  
+  <Step title="Set Security Context">
+    The authentication object with authorities is set in the Spring Security context.
+  </Step>
+  
+  <Step title="Authorization Check">
+    Spring Security checks if the user's authorities match the required authorities for the endpoint.
+  </Step>
+  
+  <Step title="Grant or Deny Access">
+    - If authorized: Request proceeds to the controller
+    - If unauthorized: Returns 403 Forbidden
+  </Step>
+</Steps>
+
+## Error Responses
+
+### 401 Unauthorized
+
+Returned when no valid JWT token is provided:
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Full authentication is required to access this resource",
+  "status": 401
+}
+```
+
+### 403 Forbidden
+
+Returned when the user is authenticated but doesn't have the required role:
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Access is denied",
+  "status": 403
+}
+```
+
+## Permission Matrix
+
+Here's a complete overview of endpoint permissions:
+
+| Endpoint | Method | ROLE_SURGEON | ROLE_AI | Public |
+|----------|--------|--------------|---------|--------|
+| `/api/v1/auth/login` | POST | - | - | Yes |
+| `/api/v1/auth/register` | POST | - | - | Yes |
+| `/api/v1/auth/me` | GET | Yes | Yes | No |
+| `/api/v1/surgeries` | POST | Yes | No | No |
+| `/api/v1/surgeries` | GET | Yes | No | No |
+| `/api/v1/surgeries/{id}` | GET | Yes | No | No |
+| `/api/v1/surgeries/{id}/trajectory` | GET | Yes | Yes | No |
+| `/api/v1/surgeries/{id}/analysis` | POST | No | Yes | No |
+| `/ws/simulation/**` | WS | - | - | Yes |
+| `/ws/ai/**` | WS | - | - | Yes |
+| `/swagger-ui/**` | GET | - | - | Yes |
+
+## Best Practices
+
+### For Frontend Developers
+
+1. **Check User Role**: After login, store the user's role and conditionally render UI elements based on permissions.
+
+```javascript
+const response = await fetch('/api/v1/auth/me', {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+const user = await response.json();
+
+if (user.role === 'ROLE_SURGEON') {
+  // Show surgeon-specific UI
+} else if (user.role === 'ROLE_AI') {
+  // Show AI-specific UI
+}
+```
+
+2. **Handle 403 Errors**: Gracefully handle authorization errors and show appropriate messages to users.
+
+```javascript
+if (response.status === 403) {
+  alert('You do not have permission to perform this action.');
+}
+```
+
+### For Backend Developers
+
+1. **Use Method-Level Security**: For additional security, consider adding `@PreAuthorize` annotations to controller methods:
+
+```java
+@PreAuthorize("hasAuthority('ROLE_SURGEON')")
+public ResponseEntity<?> createSurgery(@RequestBody SurgeryRequest request) {
+    // ...
+}
+```
+
+2. **Validate Role-Specific Data**: Even with role-based authorization, validate that users can only access their own data:
+
+```java
+// Ensure surgeons can only view their own simulations
+if (!surgery.getSurgeonId().equals(currentUser.getId())) {
+    throw new AccessDeniedException("You can only access your own surgeries");
+}
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Authentication Overview" icon="lock" href="/authentication/overview">
+    Learn about the authentication architecture
+  </Card>
+  <Card title="JWT Authentication" icon="key" href="/authentication/jwt">
+    Deep dive into JWT token structure and usage
+  </Card>
+</CardGroup>

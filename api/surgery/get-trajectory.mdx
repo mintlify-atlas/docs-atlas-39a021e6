@@ -1,0 +1,255 @@
+---
+title: 'Get Surgery Trajectory'
+api: 'GET /api/v1/surgeries/{id}/trajectory'
+description: 'Retrieve surgical trajectory data for AI analysis and visualization'
+---
+
+## Overview
+
+Retrieves complete trajectory data from a completed surgery session, including all instrument movements, events, and existing analysis results. This endpoint is primarily used by the AI service to analyze surgical performance.
+
+## Authorization
+
+This endpoint requires authentication with JWT token. Access is restricted based on roles:
+
+- **ROLE_SURGEON**: Can only access their own surgeries
+- **ROLE_AI**: Can access any surgery for analysis purposes
+
+### Authorization Logic
+
+The service validates access using the following rule:
+
+```java
+if (!session.getSurgeonId().equals(authenticatedSurgeonId) && !"ROLE_AI".equals(role)) {
+    throw new ForbiddenActionException();
+}
+```
+
+Source: `SurgeryService.java:26-28`
+
+## Path Parameters
+
+<ParamField path="id" type="UUID" required>
+  The unique identifier of the surgery session
+  
+  Example: `550e8400-e29b-41d4-a716-446655440000`
+</ParamField>
+
+## Response
+
+<ResponseField name="surgeryId" type="UUID" required>
+  Unique identifier of the surgery session
+</ResponseField>
+
+<ResponseField name="startTime" type="string" required>
+  ISO 8601 timestamp when the surgery started
+  
+  Example: `2026-03-06T10:30:00`
+</ResponseField>
+
+<ResponseField name="endTime" type="string">
+  ISO 8601 timestamp when the surgery ended. Null if surgery is still in progress.
+  
+  Example: `2026-03-06T11:45:00`
+</ResponseField>
+
+<ResponseField name="movements" type="array" required>
+  Array of instrument movement records captured during the surgery
+  
+  <ResponseField name="movements[].coordinates" type="number[]" required>
+    Spatial coordinates of the instrument. Can be 2D `[x, y]` or 3D `[x, y, z]`
+    
+    Example: `[125.5, 230.8, 45.2]`
+  </ResponseField>
+  
+  <ResponseField name="movements[].event" type="string" required>
+    Surgical event type that occurred at this position
+    
+    Possible values:
+    - `NONE` - Normal movement with no event
+    - `START` - Surgery session started
+    - `FINISH` - Surgery session completed
+    - `TUMOR_TOUCH` - Instrument contacted tumor tissue
+    - `TUMOR_REMOVAL` - Tumor successfully removed
+    - `HEMORRHAGE` - Bleeding event occurred
+    - `KIDNEY_TOUCH` - Instrument contacted healthy kidney tissue
+  </ResponseField>
+  
+  <ResponseField name="movements[].timestamp" type="number" required>
+    Unix timestamp in milliseconds when this movement was recorded
+    
+    Example: `1709723400000`
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="score" type="number">
+  AI-generated performance score between 0 and 100. Null if analysis not yet completed.
+  
+  Example: `87.5`
+</ResponseField>
+
+<ResponseField name="feedback" type="string">
+  AI-generated textual feedback and recommendations. Null if analysis not yet completed.
+  
+  Example: `"Excellent precision in tumor removal. Consider reducing kidney contact events."`
+</ResponseField>
+
+## Error Responses
+
+<ResponseField name="403 Forbidden">
+  Returned when the authenticated user does not have permission to access this surgery.
+  
+  This occurs when:
+  - A surgeon attempts to access another surgeon's session
+  - User role is not ROLE_SURGEON or ROLE_AI
+  
+  ```json
+  {
+    "error": "No tienes permiso para acceder a esta cirugía."
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="404 Not Found">
+  Returned when the specified surgery ID does not exist.
+  
+  ```json
+  {
+    "error": "La cirugía con id 550e8400-e29b-41d4-a716-446655440000 no existe."
+  }
+  ```
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```bash curl
+curl -X GET \
+  'https://api.justina.com/api/v1/surgeries/550e8400-e29b-41d4-a716-446655440000/trajectory' \
+  -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+```
+
+```python Python
+import requests
+
+surgery_id = "550e8400-e29b-41d4-a716-446655440000"
+url = f"https://api.justina.com/api/v1/surgeries/{surgery_id}/trajectory"
+
+headers = {
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+
+response = requests.get(url, headers=headers)
+trajectory = response.json()
+
+print(f"Surgery score: {trajectory['score']}")
+print(f"Total movements: {len(trajectory['movements'])}")
+```
+
+```javascript JavaScript
+const surgeryId = '550e8400-e29b-41d4-a716-446655440000';
+const url = `https://api.justina.com/api/v1/surgeries/${surgeryId}/trajectory`;
+
+const response = await fetch(url, {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+  }
+});
+
+const trajectory = await response.json();
+console.log(`Surgery score: ${trajectory.score}`);
+console.log(`Total movements: ${trajectory.movements.length}`);
+```
+
+```java Java
+import java.net.http.*;
+import java.net.URI;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+String surgeryId = "550e8400-e29b-41d4-a716-446655440000";
+String url = "https://api.justina.com/api/v1/surgeries/" + surgeryId + "/trajectory";
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create(url))
+    .header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+    .GET()
+    .build();
+
+HttpResponse<String> response = HttpClient.newHttpClient()
+    .send(request, HttpResponse.BodyHandlers.ofString());
+
+ObjectMapper mapper = new ObjectMapper();
+TrajectoryDTO trajectory = mapper.readValue(response.body(), TrajectoryDTO.class);
+
+System.out.println("Surgery score: " + trajectory.score());
+System.out.println("Total movements: " + trajectory.movements().size());
+```
+
+</CodeGroup>
+
+## Response Example
+
+```json
+{
+  "surgeryId": "550e8400-e29b-41d4-a716-446655440000",
+  "startTime": "2026-03-06T10:30:00",
+  "endTime": "2026-03-06T11:45:00",
+  "movements": [
+    {
+      "coordinates": [125.5, 230.8, 45.2],
+      "event": "START",
+      "timestamp": 1709723400000
+    },
+    {
+      "coordinates": [126.1, 231.2, 45.8],
+      "event": "NONE",
+      "timestamp": 1709723400100
+    },
+    {
+      "coordinates": [130.5, 235.0, 48.0],
+      "event": "TUMOR_TOUCH",
+      "timestamp": 1709723410000
+    },
+    {
+      "coordinates": [130.5, 235.0, 48.0],
+      "event": "TUMOR_REMOVAL",
+      "timestamp": 1709723420000
+    },
+    {
+      "coordinates": [125.0, 230.0, 45.0],
+      "event": "FINISH",
+      "timestamp": 1709727900000
+    }
+  ],
+  "score": 87.5,
+  "feedback": "Excellent precision in tumor removal with minimal tissue damage. Total surgery time was efficient. Minor improvement: 2 kidney contact events were detected - consider adjusting approach angle to avoid healthy tissue."
+}
+```
+
+## Use Cases
+
+### AI Analysis Service
+
+The AI service calls this endpoint after a surgery is completed to retrieve the full trajectory data for analysis:
+
+1. Surgery session ends and triggers AI analysis
+2. AI service authenticates with ROLE_AI credentials
+3. Retrieves trajectory using this endpoint
+4. Processes movements to calculate performance metrics
+5. Sends analysis back using the `/analysis` endpoint
+
+### Surgeon Review
+
+Surgeons can view their own surgery data for review and training:
+
+1. Surgeon views completed surgery list in dashboard
+2. Selects a surgery to review
+3. Frontend retrieves trajectory data using surgeon's JWT token
+4. Displays 3D visualization of instrument path and events
+5. Shows AI score and feedback for performance review
+
+## Related Endpoints
+
+- [Save Analysis](/api/surgery/save-analysis) - Submit AI analysis results for a surgery

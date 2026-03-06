@@ -1,0 +1,163 @@
+---
+title: Introduction
+description: Real-time surgical simulation platform with AI-powered biomechanical analysis and telemetry tracking
+---
+
+# Welcome to Justina Core Backend
+
+Justina Core Backend is a **real-time surgical simulation platform** built with Spring Boot that provides advanced telemetry collection, trajectory tracking, and AI-powered biomechanical analysis for surgical training procedures. The system enables surgeons to perform simulated operations while capturing precise movement data, which is then analyzed by an intelligent AI engine to provide constructive feedback and performance scoring.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with Justina in minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/auth/login">
+    Explore the complete REST and WebSocket API
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Learn about the clean architecture design
+  </Card>
+  <Card title="Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker and Docker Compose
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Telemetry" icon="wave-pulse">
+    WebSocket streaming of high-frequency surgical movement data with sub-millisecond precision
+  </Card>
+  <Card title="JWT Authentication" icon="shield-check">
+    Secure token-based authentication with role-based access control (RBAC) for surgeons and AI systems
+  </Card>
+  <Card title="AI Analysis Pipeline" icon="brain">
+    5-step biomechanical analysis evaluating dexterity, risk patterns, and surgical technique quality
+  </Card>
+  <Card title="Clean Architecture" icon="layer-group">
+    Hexagonal architecture with clear separation between domain, application, and infrastructure layers
+  </Card>
+  <Card title="OpenAPI Documentation" icon="book">
+    Comprehensive Swagger/OpenAPI specs for all REST endpoints with interactive testing
+  </Card>
+  <Card title="Docker Ready" icon="docker">
+    Full containerization support with PostgreSQL for production deployments
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+| Category | Technology | Version |
+|----------|------------|---------|
+| **Framework** | Spring Boot | 4.0.2 |
+| **Language** | Java | 21 |
+| **Build Tool** | Maven | 3.9+ |
+| **Database** | H2 (dev) / PostgreSQL | 15+ |
+| **Security** | Spring Security + JWT | - |
+| **WebSocket** | Spring WebSocket | - |
+| **Documentation** | SpringDoc OpenAPI | 2.8.6 |
+
+## Architecture Overview
+
+Justina follows **Clean Architecture** principles with a **Hexagonal (Ports & Adapters)** pattern:
+
+```
+┌─────────────────────────────────────────────┐
+│         Infrastructure Layer                │
+│  Controllers · WebSocket · Security · JPA   │
+└─────────────────┬───────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────┐
+│         Application Layer                   │
+│     AuthService · SurgeryService            │
+└─────────────────┬───────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────┐
+│            Domain Layer                     │
+│  Models · DTOs · Repositories · Exceptions  │
+└─────────────────────────────────────────────┘
+```
+
+<Info>
+Learn more about the architecture in the [Architecture Overview](/architecture/overview) section.
+</Info>
+
+## Use Cases
+
+### Surgical Training & Simulation
+Record real-time telemetry data during simulated surgical procedures to track:
+- Hand movement trajectories and precision
+- Surgical tool positioning and control
+- Event detection (hemorrhages, tissue contact, tumor removal)
+- Session duration and efficiency metrics
+
+### AI-Powered Performance Analysis
+Automatically analyze completed surgeries using a sophisticated pipeline:
+1. **Data normalization** and temporal synchronization
+2. **Dexterity metrics** (velocity, acceleration, jerk analysis)
+3. **Gold pattern alignment** against ideal surgical trajectories
+4. **Risk evaluation** with event detection and zone mapping
+5. **Feedback generation** with personalized recommendations and scoring (0-100)
+
+### Multi-Role Access Control
+- **Surgeons** can perform simulations and view their own surgical history
+- **AI Systems** receive real-time notifications and submit analysis results
+- Secure JWT-based authentication with role-specific permissions
+
+## Quick Example
+
+Here's how to authenticate and start receiving telemetry:
+
+<CodeGroup>
+
+```bash Login Request
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "surgeon_master",
+    "password": "justina2024"
+  }'
+```
+
+```json Login Response
+{
+  "message": "Login exitoso",
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "surgeon_master",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+```javascript WebSocket Connection
+const ws = new WebSocket(
+  'ws://localhost:8080/ws/simulation?token=YOUR_JWT_TOKEN'
+);
+
+ws.onopen = () => {
+  // Send telemetry data
+  ws.send(JSON.stringify({
+    coordinates: { x: 10.5, y: 20.3, z: 15.7 },
+    event: "MOVE",
+    timestamp: new Date().toISOString()
+  }));
+};
+```
+
+</CodeGroup>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up your development environment
+  </Card>
+  <Card title="Quick Start" icon="play" href="/quickstart">
+    Build your first simulation integration
+  </Card>
+  <Card title="Authentication" icon="key" href="/authentication/overview">
+    Configure JWT and role-based access
+  </Card>
+  <Card title="WebSocket Guide" icon="bolt" href="/websocket/overview">
+    Implement real-time telemetry streaming
+  </Card>
+</CardGroup>

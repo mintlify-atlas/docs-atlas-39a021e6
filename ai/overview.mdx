@@ -1,0 +1,120 @@
+---
+title: 'AI Analysis System'
+description: 'Overview of the AI-powered surgical performance analysis engine'
+---
+
+## Introduction
+
+Justina Core Backend integrates an advanced AI analysis engine that evaluates surgical simulations in real-time. The AI system connects to the backend via WebSocket to receive notifications of completed surgeries, retrieves trajectory data, performs multi-step analysis, and returns actionable feedback to surgeons.
+
+## Architecture
+
+The AI system operates as a separate Python service that communicates with the Spring Boot backend:
+
+```
+┌─────────────────┐         WebSocket          ┌──────────────────┐
+│                 │◄──────────────────────────►│                  │
+│  Spring Boot    │     NEW_SURGERY events     │  Python AI       │
+│  Backend        │                            │  Engine          │
+│                 │                            │                  │
+└────────┬────────┘                            └────────┬─────────┘
+         │                                              │
+         │  GET /surgeries/{id}/trajectory             │
+         │◄────────────────────────────────────────────┤
+         │                                              │
+         │  POST /surgeries/{id}/analysis              │
+         │◄────────────────────────────────────────────┤
+         │                                              │
+```
+
+### Key Components
+
+<CardGroup cols={2}>
+  <Card title="AI WebSocket Handler" icon="plug" iconType="duotone">
+    Java handler that maintains WebSocket connections with AI clients and broadcasts surgery completion events
+  </Card>
+  
+  <Card title="WebSocket Client" icon="wifi" iconType="duotone">
+    Python client that listens for NEW_SURGERY notifications and triggers analysis pipeline
+  </Card>
+  
+  <Card title="Analysis Pipeline" icon="brain" iconType="duotone">
+    5-step analysis engine that evaluates surgical performance using biomechanics and risk metrics
+  </Card>
+  
+  <Card title="REST Client" icon="exchange" iconType="duotone">
+    HTTP client for retrieving trajectory data and submitting analysis results
+  </Card>
+</CardGroup>
+
+## Data Flow
+
+1. **Surgery Completion**: Surgeon finishes simulation, backend finalizes surgery session
+2. **WebSocket Notification**: Backend sends `NEW_SURGERY` event to connected AI clients
+3. **Trajectory Retrieval**: AI fetches movement data via GET endpoint
+4. **Analysis Execution**: 5-step pipeline processes trajectory and generates metrics
+5. **Result Submission**: AI posts score and feedback via POST endpoint
+6. **Persistence**: Backend saves analysis results to database
+
+## AI System Location
+
+The AI engine code is located in:
+
+```
+~/workspace/source/ia/
+├── analysis_pipeline.py    # 5-step analysis logic
+├── websocket_client.py     # Real-time notification handler
+├── client.py              # REST API client
+├── config.py              # Configuration and credentials
+├── main.py                # CLI interface for manual processing
+└── requirements.txt       # Python dependencies
+```
+
+## Authentication
+
+The AI system authenticates as a special user with `ROLE_AI` permissions:
+
+<CodeGroup>
+```python config.py
+import os
+
+BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8080")
+IA_USERNAME = os.getenv("IA_USERNAME", "ia_justina")
+IA_PASSWORD = os.getenv("IA_PASSWORD", "ia_secret_2024")
+```
+
+```python Authentication Flow
+class JustinaAIClient:
+    def login(self):
+        url = f"{self.base_url}/api/v1/auth/login"
+        payload = {
+            "username": IA_USERNAME,
+            "password": IA_PASSWORD
+        }
+        response = requests.post(url, json=payload)
+        self.token = response.cookies.get("jwt-token")
+```
+</CodeGroup>
+
+## Security Permissions
+
+The backend restricts AI endpoints to authenticated AI users:
+
+```java SecurityConfig.java
+.requestMatchers(HttpMethod.GET, "/api/v1/surgeries/*/trajectory")
+    .hasAnyAuthority("ROLE_SURGEON", "ROLE_AI")
+.requestMatchers(HttpMethod.POST, "/api/v1/surgeries/*/analysis")
+    .hasAuthority("ROLE_AI")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Analysis Pipeline" icon="flow" href="/ai/pipeline">
+    Learn about the 5-step analysis algorithm and metrics
+  </Card>
+  
+  <Card title="Backend Integration" icon="link" href="/ai/integration">
+    Understand WebSocket communication and REST endpoints
+  </Card>
+</CardGroup>
