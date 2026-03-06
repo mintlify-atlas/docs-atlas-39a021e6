@@ -1,0 +1,119 @@
+{
+  "projectType": "api-service",
+  "projectName": "Justina Core Backend",
+  "projectDescription": "Real-time surgical simulation platform with AI-powered biomechanical analysis and telemetry tracking",
+  "theme": "aspen",
+  "primaryColor": "#2563eb",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/clean-architecture",
+              "architecture/design-patterns"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "authentication/overview",
+              "authentication/jwt",
+              "authentication/roles"
+            ]
+          },
+          {
+            "group": "WebSocket Integration",
+            "pages": [
+              "websocket/overview",
+              "websocket/simulation",
+              "websocket/ai-notifications"
+            ]
+          },
+          {
+            "group": "AI Analysis",
+            "pages": [
+              "ai/overview",
+              "ai/pipeline",
+              "ai/integration"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment-variables",
+              "deployment/production"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/login",
+              "api/auth/register",
+              "api/auth/me"
+            ]
+          },
+          {
+            "group": "Surgery Management",
+            "pages": [
+              "api/surgery/get-trajectory",
+              "api/surgery/save-analysis"
+            ]
+          },
+          {
+            "group": "WebSocket Endpoints",
+            "pages": [
+              "api/websocket/simulation",
+              "api/websocket/ai"
+            ]
+          },
+          {
+            "group": "Data Models",
+            "pages": [
+              "api/models/telemetry",
+              "api/models/trajectory",
+              "api/models/analysis",
+              "api/models/surgery-events"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time WebSocket telemetry streaming for surgical simulations",
+    "JWT-based authentication with role-based access control",
+    "AI-powered 5-step biomechanical analysis pipeline",
+    "Clean architecture with hexagonal pattern implementation",
+    "OpenAPI/Swagger documentation for all REST endpoints",
+    "Docker containerization with PostgreSQL support"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/auth/login",
+    "POST /api/v1/auth/register",
+    "GET /api/v1/auth/me",
+    "GET /api/v1/surgeries/{id}/trajectory",
+    "POST /api/v1/surgeries/{id}/analysis",
+    "WebSocket /ws/simulation",
+    "WebSocket /ws/ai"
+  ]
+}
